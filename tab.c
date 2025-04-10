@@ -352,9 +352,18 @@ void *listen_response(void *arg) {
                 
                 // Display content
                 wattron(contentwin, COLOR_PAIR(COLOR_CONTENT));
+                
+                // Get content window dimensions
+                int win_rows, win_cols;
+                getmaxyx(contentwin, win_rows, win_cols);
+                
                 int line = 1;
                 char *token = strtok(response, "\n");
-                while (token && line < LINES - 10) {
+                while (token && line < win_rows - 1) {
+                    // Ensure line doesn't exceed window width
+                    if (strlen(token) > win_cols - 4) {
+                        token[win_cols - 4] = '\0';
+                    }
                     mvwprintw(contentwin, line++, 2, "%s", token);
                     token = strtok(NULL, "\n");
                 }
@@ -367,7 +376,12 @@ void *listen_response(void *arg) {
                     draw_borders(cmdwin);
                     mvwprintw(cmdwin, 0, 2, " Location ");
                     
-                    // URL field with icon
+                    // URL field with icon - ensure it doesn't exceed window width
+                    int cmd_cols;
+                    getmaxyx(cmdwin, win_rows, cmd_cols);
+                    if (strlen(current_url) > cmd_cols - 6) {
+                        current_url[cmd_cols - 6] = '\0';
+                    }
                     mvwprintw(cmdwin, 1, 2, "🔗 %s", current_url);
                     
                     // Command prompt with icon
@@ -391,44 +405,67 @@ void *listen_response(void *arg) {
 void update_ui() {
     clear();
     
+    // Get terminal dimensions
+    int term_rows, term_cols;
+    getmaxyx(stdscr, term_rows, term_cols);
+    
+    // Calculate window sizes based on terminal dimensions
+    int title_height = 3;
+    int cmd_height = 5;
+    int notification_height = 3;
+    int status_height = 2;
+    int content_height = term_rows - (title_height + cmd_height + notification_height + status_height);
+    
+    // Ensure content window has minimum height
+    if (content_height < 5) {
+        content_height = 5;
+    }
+    
     // Create title bar
-    titlewin = newwin(3, COLS, 0, 0);
+    titlewin = newwin(title_height, term_cols, 0, 0);
     wattron(titlewin, COLOR_PAIR(COLOR_TITLE) | A_BOLD);
     box(titlewin, 0, 0);
     
     // Center the title
-    int title_pos = (COLS - 32) / 2;
+    int title_pos = (term_cols - 32) / 2;
     if (title_pos < 2) title_pos = 2;
     
     mvwprintw(titlewin, 1, title_pos, "✨ Mini Browser - Tab %d ✨", tab_id);
     wattroff(titlewin, COLOR_PAIR(COLOR_TITLE) | A_BOLD);
+    wrefresh(titlewin);
     
     // Create command window
-    cmdwin = newwin(5, COLS, 3, 0);
+    cmdwin = newwin(cmd_height, term_cols, title_height, 0);
     wattron(cmdwin, COLOR_PAIR(COLOR_URL));
     draw_borders(cmdwin);
     mvwprintw(cmdwin, 0, 2, " Location ");
     mvwprintw(cmdwin, 1, 2, "🔗 %s", current_url);
     mvwprintw(cmdwin, 3, 2, "💻 Command > ");
     wattroff(cmdwin, COLOR_PAIR(COLOR_URL));
+    wrefresh(cmdwin);
     
     // Create content window
-    contentwin = newwin(LINES - 13, COLS, 8, 0);
+    int content_y = title_height + cmd_height;
+    contentwin = newwin(content_height, term_cols, content_y, 0);
     wattron(contentwin, COLOR_PAIR(COLOR_CONTENT));
     draw_borders(contentwin);
     mvwprintw(contentwin, 0, 2, " Content ");
     mvwprintw(contentwin, 1, 2, "Content will appear here...");
     wattroff(contentwin, COLOR_PAIR(COLOR_CONTENT));
+    wrefresh(contentwin);
     
     // Create notification window
-    notificationwin = newwin(3, COLS, LINES - 5, 0);
+    int notification_y = content_y + content_height;
+    notificationwin = newwin(notification_height, term_cols, notification_y, 0);
     wattron(notificationwin, COLOR_PAIR(COLOR_NOTIFY));
     draw_borders(notificationwin);
     mvwprintw(notificationwin, 0, 2, " Notifications ");
     wattroff(notificationwin, COLOR_PAIR(COLOR_NOTIFY));
+    wrefresh(notificationwin);
     
     // Create status window
-    statuswin = newwin(2, COLS, LINES - 2, 0);
+    int status_y = notification_y + notification_height;
+    statuswin = newwin(status_height, term_cols, status_y, 0);
     wattron(statuswin, COLOR_PAIR(COLOR_STATUS) | A_BOLD);
     mvwprintw(statuswin, 0, 1, " Status: %s | Sync: %s | Tab ID: %d | Press F1 for menu", 
              is_connected ? "Connected ✅" : "Disconnected ❌",
@@ -438,6 +475,7 @@ void update_ui() {
     // Add keyboard shortcuts
     mvwprintw(statuswin, 1, 1, " F1:Menu | F2:Load | F3:Reload | F4:Back | F5:Forward | F10:Exit");
     wattroff(statuswin, COLOR_PAIR(COLOR_STATUS) | A_BOLD);
+    wrefresh(statuswin);
     
     // Create menu window (hidden by default)
     menuwin = newwin(num_menu_items + 2, 20, 5, 5);
@@ -611,6 +649,23 @@ int main(int argc, char *argv[]) {
     printf("[Tab %d] About to initialize ncurses...\n", tab_id);
     fflush(stdout);
     initscr();
+    
+    // Check terminal size
+    int min_rows = 24;
+    int min_cols = 80;
+    int term_rows, term_cols;
+    getmaxyx(stdscr, term_rows, term_cols);
+    
+    if (term_rows < min_rows || term_cols < min_cols) {
+        endwin();
+        printf("[Tab %d] Terminal too small. Minimum size required: %d x %d\n", 
+               tab_id, min_cols, min_rows);
+        printf("[Tab %d] Current terminal size: %d x %d\n", 
+               tab_id, term_cols, term_rows);
+        printf("Please resize your terminal and try again.\n");
+        exit(1);
+    }
+    
     start_color();
     cbreak();
     keypad(stdscr, TRUE);
@@ -627,9 +682,22 @@ int main(int argc, char *argv[]) {
     init_pair(COLOR_HIGHLIGHT, COLOR_WHITE, COLOR_GREEN); // Highlighted items
     init_pair(COLOR_WARNING, COLOR_BLACK, COLOR_YELLOW);  // Warnings
     
+    // Refresh screen to ensure we have the latest terminal size
+    refresh();
+    
     // Create UI
     update_ui();
     update_status();
+    
+    // Ensure all windows are refreshed
+    wrefresh(titlewin);
+    wrefresh(cmdwin);
+    wrefresh(contentwin);
+    wrefresh(notificationwin);
+    wrefresh(statuswin);
+    
+    // Force a full screen refresh to ensure everything is displayed
+    refresh();
 
     // Start response listener thread
     pthread_create(&response_thread, NULL, listen_response, NULL);
