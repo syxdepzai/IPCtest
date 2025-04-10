@@ -132,48 +132,35 @@ int init_shared_memory_connection() {
     return 0;
 }
 
-// Draw decorative borders
+// Đơn giản hóa hàm draw_borders thành ASCII cơ bản
 void draw_borders(WINDOW *win) {
-    int x, y, i;
+    int x, y;
     getmaxyx(win, y, x);
     
-    // Sử dụng ký tự ASCII thông thường thay vì ACS
+    // Sử dụng các ký tự cơ bản để đảm bảo hiển thị trên mọi terminal
+    mvwhline(win, 0, 0, '-', x);
+    mvwhline(win, y-1, 0, '-', x);
+    mvwvline(win, 0, 0, '|', y);
+    mvwvline(win, 0, x-1, '|', y);
     mvwaddch(win, 0, 0, '+');
-    mvwaddch(win, y - 1, 0, '+');
-    mvwaddch(win, 0, x - 1, '+');
-    mvwaddch(win, y - 1, x - 1, '+');
-    
-    // Vẽ đường ngang
-    for (i = 1; i < x - 1; i++) {
-        mvwaddch(win, 0, i, '-');
-        mvwaddch(win, y - 1, i, '-');
-    }
-    
-    // Vẽ đường dọc
-    for (i = 1; i < y - 1; i++) {
-        mvwaddch(win, i, 0, '|');
-        mvwaddch(win, i, x - 1, '|');
-    }
+    mvwaddch(win, y-1, 0, '+');
+    mvwaddch(win, 0, x-1, '+');
+    mvwaddch(win, y-1, x-1, '+');
 }
 
-// Show notification message with animation
+// Đơn giản hóa hàm hiển thị thông báo
 void show_notification(const char *message) {
     if (!statuswin) return;
     
     strncpy(notification, message, MAX_MSG - 1);
     notification_time = time(NULL);
     
-    // Chỉ cập nhật dòng thứ hai của statuswin
-    int rows, cols;
-    getmaxyx(statuswin, rows, cols);
+    // Xóa dòng thông báo
+    wmove(statuswin, 2, 2);
+    wclrtoeol(statuswin);
     
-    // Xóa dòng thứ hai
-    wmove(statuswin, 1, 1);
-    for (int i = 1; i < cols - 1; i++)
-        waddch(statuswin, ' ');
-    
-    // Hiển thị thông báo
-    mvwprintw(statuswin, 1, 2, "MSG: %s", notification);
+    // Hiển thị thông báo mới
+    mvwprintw(statuswin, 2, 2, " Thông báo: %s", message);
     wrefresh(statuswin);
 }
 
@@ -193,27 +180,106 @@ int get_active_tab_count() {
     return count;
 }
 
-// Show menu
+// Cập nhật hàm update_ui với giao diện cực kỳ tối giản
+void update_ui() {
+    clear();
+    
+    // Lấy kích thước terminal
+    int term_rows, term_cols;
+    getmaxyx(stdscr, term_rows, term_cols);
+    
+    // Chỉ sử dụng 3 vùng cơ bản:
+    // 1. Tiêu đề (2 dòng)
+    // 2. Nội dung (đa số màn hình)
+    // 3. Thanh trạng thái/thông báo (3 dòng)
+    
+    int title_height = 2;
+    int status_height = 3;
+    int content_height = term_rows - (title_height + status_height);
+    
+    // Đảm bảo nội dung có ít nhất 3 dòng
+    if (content_height < 3) content_height = 3;
+    
+    // 1. Tiêu đề và URL
+    titlewin = newwin(title_height, term_cols, 0, 0);
+    draw_borders(titlewin);
+    mvwprintw(titlewin, 0, 2, " Tab %d ", tab_id);
+    mvwprintw(titlewin, 1, 2, "URL: %s", current_url);
+    wrefresh(titlewin);
+    
+    // 2. Nội dung
+    contentwin = newwin(content_height, term_cols, title_height, 0);
+    draw_borders(contentwin);
+    mvwprintw(contentwin, 0, 2, " Nội dung ");
+    mvwprintw(contentwin, 1, 2, "<Nội dung sẽ hiển thị ở đây>");
+    wrefresh(contentwin);
+    
+    // 3. Trạng thái và menu
+    statuswin = newwin(status_height, term_cols, title_height + content_height, 0);
+    draw_borders(statuswin);
+    
+    // Hiển thị trạng thái
+    int connect_status = is_connected ? 1 : 0;
+    int sync_status = is_synced ? 1 : 0;
+    mvwprintw(statuswin, 0, 2, " Trạng thái: %s | Tab: %d | Đồng bộ: %s ", 
+              connect_status ? "Kết nối" : "Không kết nối", 
+              tab_id,
+              sync_status ? "Bật" : "Tắt");
+    
+    // Hiển thị các phím tắt chức năng thường dùng trên dòng đầu
+    mvwprintw(statuswin, 1, 2, " F1:Menu | F2:Load | F3:Reload | F10:Exit | c:Nhập lệnh ");
+    
+    // Dòng thứ 2 để hiển thị thông báo
+    mvwprintw(statuswin, 2, 2, " Thông báo: ");
+    
+    wrefresh(statuswin);
+    
+    // Tạo cửa sổ menu riêng
+    menuwin = newwin(num_menu_items + 2, 25, 2, 2);
+    
+    // Kết hợp notificationwin và statuswin
+    notificationwin = statuswin;
+}
+
+void update_status() {
+    if (!statuswin) return;
+    
+    // Chỉ cập nhật dòng đầu tiên
+    int rows, cols;
+    getmaxyx(statuswin, rows, cols);
+    
+    // Xóa dòng đầu tiên (trừ viền)
+    wmove(statuswin, 0, 1);
+    for (int i = 1; i < cols - 1; i++)
+        waddch(statuswin, ' ');
+    
+    // Hiển thị trạng thái
+    mvwprintw(statuswin, 0, 2, "Status: %s | Tab: %d | Sync: %s", 
+             is_connected ? "Connected" : "Disconnected",
+             tab_id,
+             is_synced ? "ON" : "OFF");
+    
+    wrefresh(statuswin);
+}
+
+// Cập nhật hàm display_menu để đơn giản hơn
 void display_menu() {
     if (!menuwin) return;
     
     werase(menuwin);
-    wattron(menuwin, COLOR_PAIR(COLOR_MENU));
-    box(menuwin, 0, 0);
-    
-    mvwprintw(menuwin, 0, 2, " Menu ");
+    draw_borders(menuwin);
+    mvwprintw(menuwin, 0, 2, " Menu chức năng ");
     
     for (int i = 0; i < num_menu_items; i++) {
         if (i == selected_menu_item) {
-            wattron(menuwin, COLOR_PAIR(COLOR_HIGHLIGHT) | A_BOLD);
-            mvwprintw(menuwin, i + 1, 2, "▶ %s", tab_menu_items[i]);
-            wattroff(menuwin, COLOR_PAIR(COLOR_HIGHLIGHT) | A_BOLD);
+            wattron(menuwin, A_REVERSE);
+            mvwprintw(menuwin, i + 1, 2, "> %s", tab_menu_items[i]);
+            wattroff(menuwin, A_REVERSE);
         } else {
             mvwprintw(menuwin, i + 1, 2, "  %s", tab_menu_items[i]);
         }
     }
     
-    wattroff(menuwin, COLOR_PAIR(COLOR_MENU));
     wrefresh(menuwin);
 }
 
@@ -391,82 +457,6 @@ void *listen_response(void *arg) {
 
     close(read_fd);
     return NULL;
-}
-
-void update_ui() {
-    clear();
-    
-    // Lấy kích thước terminal
-    int term_rows, term_cols;
-    getmaxyx(stdscr, term_rows, term_cols);
-    
-    // Layout đơn giản hơn:
-    // 1. Dòng tiêu đề + url (2 dòng)
-    // 2. Vùng nội dung (phần lớn màn hình)
-    // 3. Dòng trạng thái (2 dòng)
-    
-    int title_height = 2;
-    int status_height = 2;
-    int content_height = term_rows - (title_height + status_height);
-    
-    // Đảm bảo vùng nội dung có tối thiểu 3 dòng
-    if (content_height < 3) 
-        content_height = 3;
-    
-    // 1. Vùng tiêu đề và URL kết hợp
-    titlewin = newwin(title_height, term_cols, 0, 0);
-    wattron(titlewin, COLOR_PAIR(COLOR_TITLE) | A_BOLD);
-    box(titlewin, 0, 0);
-    mvwprintw(titlewin, 0, 2, " Browser Tab %d ", tab_id);
-    mvwprintw(titlewin, 1, 2, "URL: %s", current_url);
-    wattroff(titlewin, COLOR_PAIR(COLOR_TITLE) | A_BOLD);
-    wrefresh(titlewin);
-    
-    // 2. Vùng nội dung
-    contentwin = newwin(content_height, term_cols, title_height, 0);
-    wattron(contentwin, COLOR_PAIR(COLOR_CONTENT));
-    box(contentwin, 0, 0);
-    mvwprintw(contentwin, 0, 2, " Content ");
-    mvwprintw(contentwin, 1, 2, "Content will appear here...");
-    wattroff(contentwin, COLOR_PAIR(COLOR_CONTENT));
-    wrefresh(contentwin);
-    
-    // 3. Vùng trạng thái (kết hợp status và thông báo)
-    statuswin = newwin(status_height, term_cols, title_height + content_height, 0);
-    wattron(statuswin, COLOR_PAIR(COLOR_STATUS));
-    box(statuswin, 0, 0);
-    mvwprintw(statuswin, 0, 2, "Status: %s | Tab: %d | F1:Menu | F10:Exit", 
-              is_connected ? "Connected" : "Disconnected", tab_id);
-    mvwprintw(statuswin, 1, 2, "F2:Load | F3:Reload | F4:Back | F5:Forward");
-    wattroff(statuswin, COLOR_PAIR(COLOR_STATUS));
-    wrefresh(statuswin);
-    
-    // Menu window
-    menuwin = newwin(num_menu_items + 2, 20, 2, 2);
-    
-    // Bỏ qua notificationwin vì đã kết hợp vào statuswin
-    notificationwin = statuswin;
-}
-
-void update_status() {
-    if (!statuswin) return;
-    
-    // Chỉ cập nhật dòng đầu tiên
-    int rows, cols;
-    getmaxyx(statuswin, rows, cols);
-    
-    // Xóa dòng đầu tiên (trừ viền)
-    wmove(statuswin, 0, 1);
-    for (int i = 1; i < cols - 1; i++)
-        waddch(statuswin, ' ');
-    
-    // Hiển thị trạng thái
-    mvwprintw(statuswin, 0, 2, "Status: %s | Tab: %d | Sync: %s", 
-             is_connected ? "Connected" : "Disconnected",
-             tab_id,
-             is_synced ? "ON" : "OFF");
-    
-    wrefresh(statuswin);
 }
 
 // Handle menu selection
@@ -825,30 +815,34 @@ int main(int argc, char *argv[]) {
                     break;
                     
                 case 'c': // Command mode
-                    // Show command prompt
-                    show_notification("Enter command");
+                    // Hiển thị dấu nhắc lệnh trên dòng thông báo
+                    wmove(statuswin, 2, 2);
+                    wclrtoeol(statuswin);
+                    mvwprintw(statuswin, 2, 2, " Lệnh > ");
+                    wrefresh(statuswin);
+                    
+                    // Bật chế độ nhập và hiển thị con trỏ
                     echo();
                     curs_set(1);
-                    werase(cmdwin);
-                    wattron(cmdwin, COLOR_PAIR(COLOR_URL));
-                    draw_borders(cmdwin);
-                    mvwprintw(cmdwin, 0, 2, " Location ");
-                    mvwprintw(cmdwin, 1, 2, "🔗 %s", current_url);
-                    mvwprintw(cmdwin, 3, 2, "💻 Command > ");
-                    wattroff(cmdwin, COLOR_PAIR(COLOR_URL));
-                    wrefresh(cmdwin);
                     
-                    wmove(cmdwin, 3, 15);
-                    wgetnstr(cmdwin, input, MAX_MSG);
+                    // Di chuyển con trỏ đến vị trí nhập
+                    wmove(statuswin, 2, 10);
+                    wrefresh(statuswin);
+                    
+                    // Nhận lệnh từ người dùng
+                    wgetnstr(statuswin, input, MAX_MSG - 1);
+                    
+                    // Tắt chế độ nhập và ẩn con trỏ
                     noecho();
                     curs_set(0);
                     
+                    // Xử lý lệnh nhập
                     if (strcmp(input, "exit") == 0) {
                         running = 0;
                         break;
                     }
                     
-                    // Parse command
+                    // Xử lý các lệnh khác như trước đây
                     if (strncmp(input, "load ", 5) == 0) {
                         strncpy(current_url, input + 5, MAX_MSG - 1);
                         current_url[MAX_MSG - 1] = '\0';
@@ -886,12 +880,17 @@ int main(int argc, char *argv[]) {
                         msg.cmd_type = CMD_UNKNOWN;
                     }
                     
-                    // Set timestamp and send command
+                    // Gửi lệnh
                     msg.timestamp = time(NULL);
                     strncpy(msg.command, input, MAX_MSG);
                     if (write(write_fd, &msg, sizeof(msg)) < 0) {
                         perror("write");
                     }
+                    
+                    // Hiển thị thông báo đã thực hiện lệnh
+                    show_notification("Đã thực hiện lệnh: ");
+                    waddstr(statuswin, input);
+                    wrefresh(statuswin);
                     break;
             }
         }
