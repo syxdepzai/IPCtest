@@ -16,7 +16,7 @@
 #include "common.h"
 #include "shared_memory.h"
 
-// UI Constants
+// UI Constants - Simplified for basic UI
 #define COLOR_TITLE     1
 #define COLOR_STATUS    2
 #define COLOR_NOTIFY    3
@@ -132,111 +132,86 @@ int init_shared_memory_connection() {
     return 0;
 }
 
-// Hàm vẽ viền siêu đơn giản
-void draw_basic_border(WINDOW *win) {
-    box(win, 0, 0); // Dùng box() của ncurses cho đơn giản
+// Simplified border drawing function - uses plain ASCII characters
+void draw_borders(WINDOW *win) {
+    box(win, '|', '-');
 }
 
-// Hàm hiển thị thông báo trên dòng cuối cùng của statuswin
+// Simplify notification display
 void show_notification(const char *message) {
-    if (!statuswin) return;
+    if (!notificationwin) return;
     
-    int rows, cols;
-    getmaxyx(statuswin, rows, cols);
+    // Clear notification area
+    mvwprintw(notificationwin, 0, 2, "%-50s", message);
+    wrefresh(notificationwin);
     
-    // Xóa dòng cuối (dòng thông báo)
-    wmove(statuswin, rows - 1, 1);
-    wclrtoeol(statuswin);
-    
-    // Hiển thị thông báo mới, cắt bớt nếu quá dài
-    char temp_msg[cols - 4]; // Buffer tạm
-    snprintf(temp_msg, sizeof(temp_msg), "Thông báo: %s", message);
-    mvwprintw(statuswin, rows - 1, 2, "%.*s", cols - 4, temp_msg);
-    
-    wrefresh(statuswin);
+    // Store notification for display
+    strncpy(notification, message, MAX_MSG - 1);
+    notification[MAX_MSG - 1] = '\0';
+    notification_time = time(NULL);
 }
 
-// Hàm cập nhật giao diện siêu đơn giản
+// Simplified UI update function
 void update_ui() {
-    clear(); // Xóa toàn bộ màn hình trước
+    clear();
     
     int term_rows, term_cols;
     getmaxyx(stdscr, term_rows, term_cols);
     
-    // 1. Title Bar (2 dòng)
-    int title_height = 2;
-    titlewin = newwin(title_height, term_cols, 0, 0);
-    draw_basic_border(titlewin);
-    mvwprintw(titlewin, 0, 2, "Tab %d", tab_id);
-    mvwprintw(titlewin, 1, 2, "URL: %.*s", term_cols - 8, current_url); // Cắt URL nếu dài
-    wrefresh(titlewin);
+    // Title area - simple text
+    mvprintw(0, 0, "=== Mini Browser - Tab %d ===", tab_id);
+    mvprintw(1, 0, "URL: %s", current_url);
     
-    // 2. Status Bar (3 dòng: status, keys, input/notify)
-    int status_height = 3;
-    statuswin = newwin(status_height, term_cols, term_rows - status_height, 0);
-    draw_basic_border(statuswin);
-    // Dòng trạng thái
-    int connect_status = is_connected ? 1 : 0;
-    int sync_status = is_synced ? 1 : 0;
-    mvwprintw(statuswin, 0, 2, "Trạng thái: %s | Đồng bộ: %s", 
-              connect_status ? "OK" : "--", 
-              sync_status ? "Bật" : "Tắt");
-    // Dòng phím tắt
-    mvwprintw(statuswin, 1, 2, "F1:Menu F2:Load F3:Reload F10:Exit c:Lệnh");
-    // Dòng thông báo/nhập lệnh (sẽ được cập nhật bởi show_notification hoặc phím 'c')
-    mvwprintw(statuswin, 2, 2, "Thông báo: Sẵn sàng.");
-    wrefresh(statuswin);
-    
-    // 3. Content Window (chiếm phần còn lại)
-    int content_height = term_rows - title_height - status_height;
-    if (content_height < 1) content_height = 1; // Ít nhất 1 dòng
-    contentwin = newwin(content_height, term_cols, title_height, 0);
-    draw_basic_border(contentwin);
-    mvwprintw(contentwin, 0, 2, "Nội dung");
+    // Content area - simple box
+    contentwin = newwin(term_rows - 6, term_cols, 2, 0);
+    draw_borders(contentwin);
+    mvwprintw(contentwin, 0, 2, "Content:");
     wrefresh(contentwin);
     
-    // Tạo cửa sổ menu (không vẽ ngay)
-    menuwin = newwin(num_menu_items + 2, 25, 2, 2); // Đặt gần title bar
+    // Status area - simple text
+    statuswin = newwin(3, term_cols, term_rows - 4, 0);
+    draw_borders(statuswin);
+    mvwprintw(statuswin, 0, 2, "Status: %s | Sync: %s", 
+              is_connected ? "Connected" : "Disconnected", 
+              is_synced ? "On" : "Off");
+    mvwprintw(statuswin, 1, 2, "F1:Menu F2:Load F3:Reload F10:Exit");
+    wrefresh(statuswin);
     
-    // Đặt notificationwin = statuswin để hàm show_notification hoạt động
-    notificationwin = statuswin;
+    // Command/notification area
+    cmdwin = newwin(1, term_cols, term_rows - 1, 0);
+    mvwprintw(cmdwin, 0, 0, "Command > ");
+    wrefresh(cmdwin);
     
-    refresh(); // Refresh toàn bộ màn hình sau khi vẽ các cửa sổ
+    // Simple menu window (hidden by default)
+    menuwin = newwin(num_menu_items + 2, 25, 3, 5);
+    
+    // Set notification window
+    notificationwin = cmdwin;
+    
+    refresh();
 }
 
-// Hàm cập nhật thanh trạng thái (chỉ dòng đầu)
+// Simplified status update
 void update_status() {
     if (!statuswin) return;
     
-    int rows, cols;
-    getmaxyx(statuswin, rows, cols);
-    
-    // Xóa dòng trạng thái (dòng 0)
-    wmove(statuswin, 0, 1);
-    wclrtoeol(statuswin);
-    
-    // Vẽ lại trạng thái
-    int connect_status = is_connected ? 1 : 0;
-    int sync_status = is_synced ? 1 : 0;
-    mvwprintw(statuswin, 0, 2, "Trạng thái: %s | Đồng bộ: %s", 
-              connect_status ? "OK" : "--", 
-              sync_status ? "Bật" : "Tắt");
+    mvwprintw(statuswin, 0, 2, "Status: %s | Sync: %s", 
+              is_connected ? "Connected" : "Disconnected", 
+              is_synced ? "On" : "Off");
     wrefresh(statuswin);
 }
 
-// Hàm hiển thị menu đơn giản
+// Simplified menu display
 void display_menu() {
     if (!menuwin) return;
     werase(menuwin);
-    draw_basic_border(menuwin);
+    draw_borders(menuwin);
     mvwprintw(menuwin, 0, 2, "Menu");
     for (int i = 0; i < num_menu_items; i++) {
         if (i == selected_menu_item) {
-            wattron(menuwin, A_REVERSE); // Highlight dòng được chọn
-            mvwprintw(menuwin, i + 1, 2, "> %s", tab_menu_items[i]);
-            wattroff(menuwin, A_REVERSE);
+            mvwprintw(menuwin, i + 1, 2, "-> %s", tab_menu_items[i]);
         } else {
-            mvwprintw(menuwin, i + 1, 2, "  %s", tab_menu_items[i]);
+            mvwprintw(menuwin, i + 1, 2, "   %s", tab_menu_items[i]);
         }
     }
     wrefresh(menuwin);
@@ -364,32 +339,27 @@ void *listen_response(void *arg) {
                 response[total_read] = '\0'; // Null terminate
                 
                 werase(contentwin);
-                draw_basic_border(contentwin);
-                mvwprintw(contentwin, 0, 2, "Nội dung");
+                draw_borders(contentwin);
+                mvwprintw(contentwin, 0, 2, "Content:");
                 
                 int win_rows, win_cols;
                 getmaxyx(contentwin, win_rows, win_cols);
                 int max_line_len = win_cols - 4;
-                int max_lines = win_rows - 1; // Để lại dòng tiêu đề "Nội dung"
+                int max_lines = win_rows - 1;
                 
                 int line = 1;
-            char *token = strtok(response, "\n");
+                char *token = strtok(response, "\n");
                 while (token && line < max_lines) {
-                    mvwprintw(contentwin, line++, 2, "%.*s", max_line_len, token); // Cắt nếu dài
-                token = strtok(NULL, "\n");
+                    mvwprintw(contentwin, line++, 2, "%.80s", token);
+                    token = strtok(NULL, "\n");
                 }
                 wrefresh(contentwin);
                 
-                // Cập nhật URL trên title bar
-                if (current_url[0] != '\0') {
-                    int title_rows, title_cols;
-                    getmaxyx(titlewin, title_rows, title_cols);
-                    wmove(titlewin, 1, 1);
-                    wclrtoeol(titlewin);
-                    mvwprintw(titlewin, 1, 2, "URL: %.*s", title_cols - 8, current_url);
-                    wrefresh(titlewin);
-                }
-                update_status(); // Cập nhật trạng thái
+                // Update URL display
+                mvprintw(1, 0, "URL: %-80s", current_url);
+                refresh();
+                
+                update_status();
             }
         }
     }
@@ -536,47 +506,39 @@ int main(int argc, char *argv[]) {
     }
     fflush(stdout);
 
-    // Khởi tạo ncurses
-    printf("[Tab %d] Dang khoi tao Ncurses UI...\n", tab_id);
-    fflush(stdout);
-    initscr();            
+    // Initialize ncurses with minimal settings
+    initscr();
     if (stdscr == NULL) {
-        fprintf(stderr, "[Tab %d] Loi: Khong the khoi tao man hinh ncurses.\n", tab_id);
+        fprintf(stderr, "[Tab %d] Error: Cannot initialize ncurses screen.\n", tab_id);
         exit(1);
     }
-    start_color();        
-    cbreak();             
-    noecho();             
-    keypad(stdscr, TRUE); 
-    curs_set(0);          
-
-    // Kiểm tra kích thước terminal
-    int min_rows = 10; // Giảm yêu cầu xuống tối thiểu
-    int min_cols = 50;
-    int term_rows, term_cols;
-    getmaxyx(stdscr, term_rows, term_cols);
-    if (term_rows < min_rows || term_cols < min_cols) {
-        endwin();
-        fprintf(stderr, "[Tab %d] Loi: Terminal qua nho (%dx%d). Yeu cau toi thieu: %dx%d.\n", 
-               tab_id, term_cols, term_rows, min_cols, min_rows);
-        exit(1);
-    }
-
-    // Định nghĩa màu cơ bản (nếu cần)
+    cbreak();
+    noecho();
+    keypad(stdscr, TRUE);
+    
+    // Draw UI and start threads
+    update_ui();
+    
+    // Disable fancy colors, just use basic UI
     if (has_colors()) {
-        init_pair(1, COLOR_WHITE, COLOR_BLUE);  // Title
-        init_pair(2, COLOR_BLACK, COLOR_CYAN);  // Status
-        // Không cần nhiều màu cho giao diện tối giản
+        start_color();
+        init_pair(1, COLOR_WHITE, COLOR_BLACK);
     }
-
-    // Vẽ giao diện lần đầu
-    update_ui(); 
-    show_notification("DEBUG: Luong tam thoi bi vo hieu hoa."); // Thông báo trạng thái debug
-
+    
+    // Only start essential thread
+    if (pthread_create(&response_thread, NULL, listen_response, NULL) != 0) {
+        endwin();
+        fprintf(stderr, "[Tab %d] Error: Cannot create response thread.\n", tab_id);
+        exit(1);
+    }
+    
+    // Notify about simplified UI
+    show_notification("SIMPLIFIED UI: Focus on testing functionality");
+    
     // Main event loop
     int ch;
-    BrowserMessage msg; 
-    msg.tab_id = tab_id; 
+    BrowserMessage msg;
+    msg.tab_id = tab_id;
     char input[MAX_MSG]; 
     
     while (running) {
@@ -741,7 +703,7 @@ int main(int argc, char *argv[]) {
     printf("[Tab %d] Dang don dep...\n", tab_id);
     fflush(stdout);
     cleanup(); 
-    close(write_fd); 
+    close(write_fd);
     printf("[Tab %d] Da thoat.\n", tab_id);
     return 0;
 }
