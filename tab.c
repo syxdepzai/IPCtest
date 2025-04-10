@@ -66,6 +66,9 @@ int num_menu_items = 8;
 char current_url[MAX_MSG] = "";
 int is_connected = 0;
 
+// Global variable to track if a key was just pressed
+int key_just_pressed = 0;
+
 // Forward declaration
 void update_status();
 
@@ -151,10 +154,10 @@ void show_notification(const char *message) {
     mvwprintw(statuswin, rows - 1, 2, "Message: %s", message);
     wrefresh(statuswin);
     
-    // Store for persistence
+    // Store for persistence - show for 10 seconds instead of 5
     strncpy(notification, message, MAX_MSG - 1);
     notification[MAX_MSG - 1] = '\0';
-    notification_time = time(NULL) + 5; // Show for 5 seconds
+    notification_time = time(NULL) + 10; // Show for 10 seconds
 }
 
 // Update notification based on timestamp
@@ -232,18 +235,24 @@ void update_status() {
 // Simplified menu display
 void display_menu() {
     if (!menuwin) return;
+    
+    // Create a new menu window each time to ensure it's visible
     werase(menuwin);
     draw_borders(menuwin);
     mvwprintw(menuwin, 0, 2, "Menu");
+    
     for (int i = 0; i < num_menu_items; i++) {
         if (i == selected_menu_item) {
-            wattron(menuwin, A_REVERSE); // Make selection more visible
+            wattron(menuwin, A_REVERSE | A_BOLD); // Make selection more visible
             mvwprintw(menuwin, i + 1, 2, "-> %s", tab_menu_items[i]);
-            wattroff(menuwin, A_REVERSE);
+            wattroff(menuwin, A_REVERSE | A_BOLD);
         } else {
             mvwprintw(menuwin, i + 1, 2, "   %s", tab_menu_items[i]);
         }
     }
+    
+    // Force refresh and bring to front
+    redrawwin(menuwin);
     wrefresh(menuwin);
 }
 
@@ -582,6 +591,9 @@ int main(int argc, char *argv[]) {
     char input[MAX_MSG];
     
     while (running) {
+        // Reset key press flag at the start of each loop
+        key_just_pressed = 0;
+        
         if (show_menu) {
             display_menu();
         } else {
@@ -593,18 +605,25 @@ int main(int argc, char *argv[]) {
             refresh();
         }
         
-        timeout(500); // Half-second timeout is good for responsiveness
+        timeout(100); // Shorter timeout for more responsive UI
         ch = getch();
         
-        // Xóa menu nếu người dùng nhập gì đó khác điều hướng menu
-        if (show_menu && ch != KEY_UP && ch != KEY_DOWN && ch != 10 && ch != 27 && ch != KEY_F(1)) {
-             werase(menuwin);
-             wrefresh(menuwin);
-             show_menu = 0;
-             update_ui(); // Vẽ lại UI chính sau khi ẩn menu
+        // Mark that a key was pressed if not ERR
+        if (ch != ERR) {
+            key_just_pressed = 1;
+        }
+        
+        // Handle menu display
+        // IMPORTANT CHANGE: Only hide menu if a key is pressed AND it's not a menu navigation key
+        if (show_menu && ch != ERR && ch != KEY_UP && ch != KEY_DOWN && ch != 10 && ch != 27 && ch != KEY_F(1)) {
+            // Only close the menu if a non-menu key is pressed
+            werase(menuwin);
+            wrefresh(menuwin);
+            show_menu = 0;
+            update_ui(); // Redraw the UI after hiding menu
         }
 
-        if (ch == ERR) { // Nếu timeout
+        if (ch == ERR) { // Timeout
             continue;
         }
         
@@ -641,7 +660,11 @@ int main(int argc, char *argv[]) {
                 case KEY_F(1): // F1 - Show menu
                     show_menu = 1;
                     selected_menu_item = 0;
+                    // Clear any existing menu and draw fresh
+                    if (menuwin) delwin(menuwin);
+                    menuwin = newwin(num_menu_items + 2, 30, 3, 5);
                     display_menu();
+                    show_notification("Menu displayed - Use arrow keys to navigate");
                     break;
                 case KEY_F(2): // F2 - Load (Dùng chế độ nhập lệnh)
                 case 'c':      // c - Command mode
