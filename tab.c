@@ -49,8 +49,8 @@ time_t notification_time = 0;
 int show_menu = 0;
 int selected_menu_item = 0;
 
-// Menu items
-char *menu_items[] = {
+// Menu items - Renamed to avoid conflict with menu.h
+char *tab_menu_items[] = {
     "Load Page",
     "Reload",
     "Back",
@@ -100,8 +100,8 @@ void signal_handler(int sig) {
     exit(0);
 }
 
-// Attach to shared memory
-int attach_shared_memory() {
+// Changed name to avoid conflict with shared_memory.h
+int init_shared_memory_connection() {
     // Try to access shared memory
     shmid = shmget(SHM_KEY, sizeof(SharedState), 0666);
     if (shmid < 0) {
@@ -109,8 +109,8 @@ int attach_shared_memory() {
         return -1;
     }
     
-    // Attach to shared memory
-    shared_state = attach_shared_memory(shmid);
+    // Attach to shared memory - use proper casting
+    shared_state = (SharedState *)attach_shared_memory(shmid);
     if (!shared_state) {
         perror("shmat");
         return -1;
@@ -136,7 +136,24 @@ void draw_borders(WINDOW *win) {
     
     // Draw corners
     mvwaddch(win, 0, 0, ACS_ULCORNER);
-// Show notification message
+    mvwaddch(win, y - 1, 0, ACS_LLCORNER);
+    mvwaddch(win, 0, x - 1, ACS_URCORNER);
+    mvwaddch(win, y - 1, x - 1, ACS_LRCORNER);
+    
+    // Draw horizontal lines with fancy pattern
+    for (i = 1; i < x - 1; i++) {
+        mvwaddch(win, 0, i, ACS_HLINE);
+        mvwaddch(win, y - 1, i, ACS_HLINE);
+    }
+    
+    // Draw vertical lines with fancy pattern
+    for (i = 1; i < y - 1; i++) {
+        mvwaddch(win, i, 0, ACS_VLINE);
+        mvwaddch(win, i, x - 1, ACS_VLINE);
+    }
+}
+
+// Show notification message with animation
 void show_notification(const char *message) {
     if (!notificationwin) return;
     
@@ -146,17 +163,64 @@ void show_notification(const char *message) {
     // Clear notification window
     werase(notificationwin);
     
-    wattron(notificationwin, A_REVERSE);
-    mvwprintw(notificationwin, 0, 1, "NOTIFICATION: %s", notification);
-    wattroff(notificationwin, A_REVERSE);
+    // Set color
+    wattron(notificationwin, COLOR_PAIR(COLOR_NOTIFY) | A_BOLD);
     
+    // Draw notification with border
+    draw_borders(notificationwin);
+    mvwprintw(notificationwin, 1, 2, "▶ %s", notification);
+    
+    wattroff(notificationwin, COLOR_PAIR(COLOR_NOTIFY) | A_BOLD);
     wrefresh(notificationwin);
+    
+    // Flash notification to draw attention
+    flash();
+}
+
+// Get active tab count
+int get_active_tab_count() {
+    if (!shared_state) return 0;
+    
+    lock_shared_memory();
+    int count = 0;
+    for (int i = 0; i < MAX_TABS; i++) {
+        if (shared_state->tab_active[i]) {
+            count++;
+        }
+    }
+    unlock_shared_memory();
+    
+    return count;
+}
+
+// Show menu
+void display_menu() {
+    if (!menuwin) return;
+    
+    werase(menuwin);
+    wattron(menuwin, COLOR_PAIR(COLOR_MENU));
+    box(menuwin, 0, 0);
+    
+    mvwprintw(menuwin, 0, 2, " Menu ");
+    
+    for (int i = 0; i < num_menu_items; i++) {
+        if (i == selected_menu_item) {
+            wattron(menuwin, COLOR_PAIR(COLOR_HIGHLIGHT) | A_BOLD);
+            mvwprintw(menuwin, i + 1, 2, "▶ %s", tab_menu_items[i]);
+            wattroff(menuwin, COLOR_PAIR(COLOR_HIGHLIGHT) | A_BOLD);
+        } else {
+            mvwprintw(menuwin, i + 1, 2, "  %s", tab_menu_items[i]);
+        }
+    }
+    
+    wattroff(menuwin, COLOR_PAIR(COLOR_MENU));
+    wrefresh(menuwin);
 }
 
 // Process broadcast messages
 void *sync_thread_func(void *arg) {
     // Try to attach to shared memory if not already attached
-    if (!shared_state && attach_shared_memory() < 0) {
+    if (!shared_state && init_shared_memory_connection() < 0) {
         printf("[Tab %d] Failed to attach to shared memory for sync thread\n", tab_id);
         pthread_exit(NULL);
     }
@@ -183,31 +247,31 @@ void *sync_thread_func(void *arg) {
                             switch (msg->type) {
                                 case BROADCAST_BOOKMARK_ADDED:
                                     snprintf(notification_msg, MAX_MSG, 
-                                            "Tab %d added bookmark: %s", 
+                                            "💾 Tab %d added bookmark: %s", 
                                             msg->sender_tab_id, msg->data);
                                     break;
                                     
                                 case BROADCAST_BOOKMARK_REMOVED:
                                     snprintf(notification_msg, MAX_MSG, 
-                                            "Tab %d removed bookmark: %s", 
+                                            "🗑️ Tab %d removed bookmark: %s", 
                                             msg->sender_tab_id, msg->data);
                                     break;
                                     
                                 case BROADCAST_NEW_TAB:
                                     snprintf(notification_msg, MAX_MSG, 
-                                            "New tab opened: %d", 
+                                            "📄 New tab opened: %d", 
                                             msg->sender_tab_id);
                                     break;
                                     
                                 case BROADCAST_TAB_CLOSED:
                                     snprintf(notification_msg, MAX_MSG, 
-                                            "Tab %d closed", 
+                                            "❌ Tab %d closed", 
                                             msg->sender_tab_id);
                                     break;
                                     
                                 case BROADCAST_PAGE_LOADED:
                                     snprintf(notification_msg, MAX_MSG, 
-                                            "Tab %d loaded page: %s", 
+                                            "🔄 Tab %d loaded page: %s", 
                                             msg->sender_tab_id, msg->data);
                                     break;
                                     
@@ -277,25 +341,42 @@ void *listen_response(void *arg) {
                 // Process response
                 werase(contentwin);
                 
+                // Draw styled border
+                wattron(contentwin, COLOR_PAIR(COLOR_CONTENT));
+                draw_borders(contentwin);
+                mvwprintw(contentwin, 0, 2, " Content ");
+                wattroff(contentwin, COLOR_PAIR(COLOR_CONTENT));
+                
+                // Display content
+                wattron(contentwin, COLOR_PAIR(COLOR_CONTENT));
                 int line = 1;
                 char *token = strtok(response, "\n");
-                while (token && line < LINES - 8) {
-                    mvwprintw(contentwin, line++, 1, "%s", token);
+                while (token && line < LINES - 10) {
+                    mvwprintw(contentwin, line++, 2, "%s", token);
                     token = strtok(NULL, "\n");
                 }
-                
-                box(contentwin, 0, 0);
+                wattroff(contentwin, COLOR_PAIR(COLOR_CONTENT));
                 
                 // Update address bar with current URL if available
                 if (current_url[0] != '\0') {
                     werase(cmdwin);
-                    box(cmdwin, 0, 0);
-                    mvwprintw(cmdwin, 1, 2, "URL: %s", current_url);
-                    mvwprintw(cmdwin, 3, 2, "Command > ");
+                    wattron(cmdwin, COLOR_PAIR(COLOR_URL));
+                    draw_borders(cmdwin);
+                    mvwprintw(cmdwin, 0, 2, " Location ");
+                    
+                    // URL field with icon
+                    mvwprintw(cmdwin, 1, 2, "🔗 %s", current_url);
+                    
+                    // Command prompt with icon
+                    mvwprintw(cmdwin, 3, 2, "💻 Command > ");
+                    wattroff(cmdwin, COLOR_PAIR(COLOR_URL));
                     wrefresh(cmdwin);
                 }
                 
                 wrefresh(contentwin);
+                
+                // Refresh status after content update
+                update_status();
             }
         }
     }
@@ -307,71 +388,166 @@ void *listen_response(void *arg) {
 void update_ui() {
     clear();
     
+    // Create title bar
+    titlewin = newwin(3, COLS, 0, 0);
+    wattron(titlewin, COLOR_PAIR(COLOR_TITLE) | A_BOLD);
+    box(titlewin, 0, 0);
+    
+    // Center the title
+    int title_pos = (COLS - 32) / 2;
+    if (title_pos < 2) title_pos = 2;
+    
+    mvwprintw(titlewin, 1, title_pos, "✨ Mini Browser - Tab %d ✨", tab_id);
+    wattroff(titlewin, COLOR_PAIR(COLOR_TITLE) | A_BOLD);
+    
     // Create command window
-    cmdwin = newwin(5, COLS - 2, 1, 1);
-    box(cmdwin, 0, 0);
-    mvwprintw(cmdwin, 1, 2, "URL: %s", current_url);
-    mvwprintw(cmdwin, 3, 2, "Command > ");
+    cmdwin = newwin(5, COLS, 3, 0);
+    wattron(cmdwin, COLOR_PAIR(COLOR_URL));
+    draw_borders(cmdwin);
+    mvwprintw(cmdwin, 0, 2, " Location ");
+    mvwprintw(cmdwin, 1, 2, "🔗 %s", current_url);
+    mvwprintw(cmdwin, 3, 2, "💻 Command > ");
+    wattroff(cmdwin, COLOR_PAIR(COLOR_URL));
     
     // Create content window
-    contentwin = newwin(LINES - 9, COLS - 2, 6, 1);
-    box(contentwin, 0, 0);
+    contentwin = newwin(LINES - 13, COLS, 8, 0);
+    wattron(contentwin, COLOR_PAIR(COLOR_CONTENT));
+    draw_borders(contentwin);
+    mvwprintw(contentwin, 0, 2, " Content ");
     mvwprintw(contentwin, 1, 2, "Content will appear here...");
+    wattroff(contentwin, COLOR_PAIR(COLOR_CONTENT));
     
     // Create notification window
-    notificationwin = newwin(1, COLS - 2, LINES - 3, 1);
+    notificationwin = newwin(3, COLS, LINES - 5, 0);
+    wattron(notificationwin, COLOR_PAIR(COLOR_NOTIFY));
+    draw_borders(notificationwin);
+    mvwprintw(notificationwin, 0, 2, " Notifications ");
+    wattroff(notificationwin, COLOR_PAIR(COLOR_NOTIFY));
     
     // Create status window
-    statuswin = newwin(1, COLS - 2, LINES - 2, 1);
-    wattron(statuswin, A_REVERSE);
-    mvwprintw(statuswin, 0, 1, "Status: %s | Sync: %s", 
-             is_connected ? "Connected" : "Disconnected",
-             is_synced ? "ON" : "OFF");
-    wattroff(statuswin, A_REVERSE);
+    statuswin = newwin(2, COLS, LINES - 2, 0);
+    wattron(statuswin, COLOR_PAIR(COLOR_STATUS) | A_BOLD);
+    mvwprintw(statuswin, 0, 1, " Status: %s | Sync: %s | Tab ID: %d | Press F1 for menu", 
+             is_connected ? "Connected ✅" : "Disconnected ❌",
+             is_synced ? "ON ✅" : "OFF ❌",
+             tab_id);
     
-    // Draw status bar
-    attron(A_REVERSE);
-    mvprintw(0, 0, "Mini Browser - Tab %d%*s", 
-             tab_id, COLS - 16 - (tab_id > 9 ? 2 : 1), "");
-    attroff(A_REVERSE);
+    // Add keyboard shortcuts
+    mvwprintw(statuswin, 1, 1, " F1:Menu | F2:Load | F3:Reload | F4:Back | F5:Forward | F10:Exit");
+    wattroff(statuswin, COLOR_PAIR(COLOR_STATUS) | A_BOLD);
     
-    // Instructions at bottom
-    attron(A_REVERSE);
-    mvprintw(LINES - 1, 0, 
-          "Commands: load <page>, reload, back, forward, history, bookmark, bookmarks, sync on/off%*s", 
-          COLS - 80, "");
-    attroff(A_REVERSE);
-    
-    refresh();
-    wrefresh(cmdwin);
-    wrefresh(contentwin);
-    wrefresh(statuswin);
+    // Create menu window (hidden by default)
+    menuwin = newwin(num_menu_items + 2, 20, 5, 5);
 }
 
 void update_status() {
     if (!statuswin) return;
     
     werase(statuswin);
-    wattron(statuswin, A_REVERSE);
-    mvwprintw(statuswin, 0, 1, "Status: %s | Sync: %s | Tab ID: %d", 
-             is_connected ? "Connected" : "Disconnected",
-             is_synced ? "ON" : "OFF",
-             tab_id);
+    wattron(statuswin, COLOR_PAIR(COLOR_STATUS) | A_BOLD);
     
-    // Add shared memory status if available
+    // Active tabs count
+    int active_tabs = get_active_tab_count();
+    
+    // Status line
+    mvwprintw(statuswin, 0, 1, " Status: %s | Sync: %s | Tab ID: %d | Active Tabs: %d", 
+             is_connected ? "Connected ✅" : "Disconnected ❌",
+             is_synced ? "ON ✅" : "OFF ❌",
+             tab_id,
+             active_tabs);
+    
+    // Add bookmark count if available
     if (shared_state) {
-        wprintw(statuswin, " | Active Tabs: %d", shared_state->active_tab_count);
+        lock_shared_memory();
+        wprintw(statuswin, " | Bookmarks: %d", shared_state->bookmark_count);
+        unlock_shared_memory();
     }
     
-    // Fill the rest with spaces
-    int x, y;
-    getyx(statuswin, y, x);
-    for (int i = x; i < COLS - 3; i++) {
-        waddch(statuswin, ' ');
-    }
+    // Add keyboard shortcuts
+    mvwprintw(statuswin, 1, 1, " F1:Menu | F2:Load | F3:Reload | F4:Back | F5:Forward | F10:Exit");
     
-    wattroff(statuswin, A_REVERSE);
+    wattroff(statuswin, COLOR_PAIR(COLOR_STATUS) | A_BOLD);
     wrefresh(statuswin);
+}
+
+// Handle menu selection
+void handle_menu_action() {
+    BrowserMessage msg;
+    msg.tab_id = tab_id;
+    msg.timestamp = time(NULL);
+    msg.use_shared_memory = 0;
+    msg.shared_memory_id = -1;
+    char input[MAX_MSG];
+    
+    switch (selected_menu_item) {
+        case 0: // Load Page
+            show_notification("Enter URL to load");
+            echo();
+            wmove(cmdwin, 3, 15);
+            wgetnstr(cmdwin, input, MAX_MSG - 6);
+            noecho();
+            
+            if (strlen(input) > 0) {
+                sprintf(msg.command, "load %s", input);
+                msg.cmd_type = CMD_LOAD;
+                strncpy(current_url, input, MAX_MSG - 1);
+                current_url[MAX_MSG - 1] = '\0';
+                update_ui();
+                write(write_fd, &msg, sizeof(msg));
+            }
+            break;
+            
+        case 1: // Reload
+            strcpy(msg.command, "reload");
+            msg.cmd_type = CMD_RELOAD;
+            write(write_fd, &msg, sizeof(msg));
+            break;
+            
+        case 2: // Back
+            strcpy(msg.command, "back");
+            msg.cmd_type = CMD_BACK;
+            write(write_fd, &msg, sizeof(msg));
+            break;
+            
+        case 3: // Forward
+            strcpy(msg.command, "forward");
+            msg.cmd_type = CMD_FORWARD;
+            write(write_fd, &msg, sizeof(msg));
+            break;
+            
+        case 4: // Bookmarks
+            strcpy(msg.command, "bookmarks");
+            msg.cmd_type = CMD_BOOKMARK_LIST;
+            write(write_fd, &msg, sizeof(msg));
+            break;
+            
+        case 5: // History
+            strcpy(msg.command, "history");
+            msg.cmd_type = CMD_HISTORY;
+            write(write_fd, &msg, sizeof(msg));
+            break;
+            
+        case 6: // Toggle Sync
+            if (is_synced) {
+                strcpy(msg.command, "sync off");
+                msg.cmd_type = CMD_SYNC_OFF;
+                is_synced = 0;
+            } else {
+                strcpy(msg.command, "sync on");
+                msg.cmd_type = CMD_SYNC_ON;
+                is_synced = 1;
+            }
+            update_status();
+            write(write_fd, &msg, sizeof(msg));
+            break;
+            
+        case 7: // Exit
+            running = 0;
+            break;
+    }
+    
+    // Hide menu after action
+    show_menu = 0;
 }
 
 int main(int argc, char *argv[]) {
@@ -399,7 +575,7 @@ int main(int argc, char *argv[]) {
     is_connected = 1;
     
     // Try to attach to shared memory
-    if (attach_shared_memory() == 0) {
+    if (init_shared_memory_connection() == 0) {
         printf("[Tab %d] Shared memory attached successfully.\n", tab_id);
     } else {
         printf("[Tab %d] No shared memory yet. Will try again later.\n", tab_id);
@@ -414,19 +590,23 @@ int main(int argc, char *argv[]) {
     
     // Initialize ncurses
     initscr();
+    start_color();
     cbreak();
-    echo();
     keypad(stdscr, TRUE);
-    curs_set(1);
+    noecho();
+    curs_set(0);  // Hide cursor initially
     
-    // Check if terminal supports colors
-    if (has_colors()) {
-        start_color();
-        init_pair(1, COLOR_WHITE, COLOR_BLUE);    // Status bar
-        init_pair(2, COLOR_BLACK, COLOR_GREEN);   // Notification
-        init_pair(3, COLOR_BLACK, COLOR_YELLOW);  // Warning
-    }
+    // Define color pairs
+    init_pair(COLOR_TITLE, COLOR_WHITE, COLOR_BLUE);      // Title bar
+    init_pair(COLOR_STATUS, COLOR_BLACK, COLOR_CYAN);     // Status bar
+    init_pair(COLOR_NOTIFY, COLOR_WHITE, COLOR_RED);      // Notifications
+    init_pair(COLOR_URL, COLOR_WHITE, COLOR_BLACK);       // URL bar
+    init_pair(COLOR_CONTENT, COLOR_WHITE, COLOR_BLACK);   // Content
+    init_pair(COLOR_MENU, COLOR_BLACK, COLOR_WHITE);      // Menu
+    init_pair(COLOR_HIGHLIGHT, COLOR_WHITE, COLOR_GREEN); // Highlighted items
+    init_pair(COLOR_WARNING, COLOR_BLACK, COLOR_YELLOW);  // Warnings
     
+    // Create UI
     update_ui();
     update_status();
 
@@ -436,73 +616,218 @@ int main(int argc, char *argv[]) {
     // Start sync thread
     pthread_create(&sync_thread, NULL, sync_thread_func, NULL);
     
+    // Main event loop
+    int ch;
     char input[MAX_MSG];
-    while (1) {
+    
+    while (running) {
+        // Show menu if active
+        if (show_menu) {
+            display_menu();
+        }
+        
         // Update UI if needed
         if (notification_time > 0 && time(NULL) - notification_time > 5) {
             // Clear notification after 5 seconds
             werase(notificationwin);
+            wattron(notificationwin, COLOR_PAIR(COLOR_NOTIFY));
+            draw_borders(notificationwin);
+            mvwprintw(notificationwin, 0, 2, " Notifications ");
+            wattroff(notificationwin, COLOR_PAIR(COLOR_NOTIFY));
             wrefresh(notificationwin);
             notification_time = 0;
         }
         
-        // Position cursor for input
-        wmove(cmdwin, 3, 12);  // Position cursor after "Command > "
-        wgetnstr(cmdwin, input, MAX_MSG);
+        // Get input without blocking
+        timeout(500); // Half-second timeout
+        ch = getch();
         
-        if (strcmp(input, "exit") == 0) break;
-        
-        // Parse command
-        if (strncmp(input, "load ", 5) == 0) {
-            strncpy(current_url, input + 5, MAX_MSG - 1);
-            current_url[MAX_MSG - 1] = '\0';
-            update_ui();
-            msg.cmd_type = CMD_LOAD;
-        } else if (strcmp(input, "reload") == 0) {
-            msg.cmd_type = CMD_RELOAD;
-        } else if (strcmp(input, "back") == 0) {
-            msg.cmd_type = CMD_BACK;
-        } else if (strcmp(input, "forward") == 0) {
-            msg.cmd_type = CMD_FORWARD;
-        } else if (strcmp(input, "history") == 0) {
-            msg.cmd_type = CMD_HISTORY;
-        } else if (strcmp(input, "bookmark") == 0) {
-            msg.cmd_type = CMD_BOOKMARK;
-        } else if (strcmp(input, "bookmarks") == 0) {
-            msg.cmd_type = CMD_BOOKMARK_LIST;
-        } else if (strncmp(input, "open ", 5) == 0) {
-            msg.cmd_type = CMD_BOOKMARK_OPEN;
-        } else if (strncmp(input, "delete ", 7) == 0) {
-            msg.cmd_type = CMD_BOOKMARK_DELETE;
-        } else if (strcmp(input, "sync on") == 0) {
-            msg.cmd_type = CMD_SYNC_ON;
-            is_synced = 1;
-            update_status();
-        } else if (strcmp(input, "sync off") == 0) {
-            msg.cmd_type = CMD_SYNC_OFF;
-            is_synced = 0;
-            update_status();
-        } else if (strncmp(input, "broadcast ", 10) == 0) {
-            msg.cmd_type = CMD_BROADCAST;
-        } else if (strcmp(input, "status") == 0) {
-            msg.cmd_type = CMD_STATUS;
-        } else {
-            msg.cmd_type = CMD_UNKNOWN;
+        if (ch == ERR) {
+            // Timeout occurred, just refresh the UI
+            continue;
         }
         
-        // Set timestamp
-        msg.timestamp = time(NULL);
-        
-        // Send command to browser
-        strncpy(msg.command, input, MAX_MSG);
-        write(write_fd, &msg, sizeof(msg));
-
-        // Update command window
-        werase(cmdwin);
-        box(cmdwin, 0, 0);
-        mvwprintw(cmdwin, 1, 2, "URL: %s", current_url);
-        mvwprintw(cmdwin, 3, 2, "Command > ");
-        wrefresh(cmdwin);
+        if (show_menu) {
+            // Handle menu navigation
+            switch (ch) {
+                case KEY_UP:
+                    selected_menu_item = (selected_menu_item + num_menu_items - 1) % num_menu_items;
+                    display_menu();
+                    break;
+                    
+                case KEY_DOWN:
+                    selected_menu_item = (selected_menu_item + 1) % num_menu_items;
+                    display_menu();
+                    break;
+                    
+                case 10: // Enter
+                    handle_menu_action();
+                    break;
+                    
+                case 27: // ESC
+                case KEY_F(1):
+                    show_menu = 0;
+                    break;
+            }
+        } else {
+            // Handle normal mode
+            switch (ch) {
+                case KEY_F(1): // F1 - Show menu
+                    show_menu = 1;
+                    selected_menu_item = 0;
+                    display_menu();
+                    break;
+                    
+                case KEY_F(2): // F2 - Load
+                    show_notification("Enter URL to load");
+                    echo();
+                    curs_set(1);
+                    wmove(cmdwin, 3, 15);
+                    wgetnstr(cmdwin, input, MAX_MSG - 6);
+                    noecho();
+                    curs_set(0);
+                    
+                    if (strlen(input) > 0) {
+                        sprintf(msg.command, "load %s", input);
+                        msg.cmd_type = CMD_LOAD;
+                        strncpy(current_url, input, MAX_MSG - 1);
+                        current_url[MAX_MSG - 1] = '\0';
+                        update_ui();
+                        write(write_fd, &msg, sizeof(msg));
+                    }
+                    break;
+                    
+                case KEY_F(3): // F3 - Reload
+                    show_notification("Reloading page...");
+                    strcpy(msg.command, "reload");
+                    msg.cmd_type = CMD_RELOAD;
+                    write(write_fd, &msg, sizeof(msg));
+                    break;
+                    
+                case KEY_F(4): // F4 - Back
+                    show_notification("Going back...");
+                    strcpy(msg.command, "back");
+                    msg.cmd_type = CMD_BACK;
+                    write(write_fd, &msg, sizeof(msg));
+                    break;
+                    
+                case KEY_F(5): // F5 - Forward
+                    show_notification("Going forward...");
+                    strcpy(msg.command, "forward");
+                    msg.cmd_type = CMD_FORWARD;
+                    write(write_fd, &msg, sizeof(msg));
+                    break;
+                    
+                case KEY_F(6): // F6 - Bookmark
+                    show_notification("Bookmarking current page...");
+                    strcpy(msg.command, "bookmark");
+                    msg.cmd_type = CMD_BOOKMARK;
+                    write(write_fd, &msg, sizeof(msg));
+                    break;
+                    
+                case KEY_F(7): // F7 - History
+                    show_notification("Showing history...");
+                    strcpy(msg.command, "history");
+                    msg.cmd_type = CMD_HISTORY;
+                    write(write_fd, &msg, sizeof(msg));
+                    break;
+                    
+                case KEY_F(8): // F8 - Toggle Sync
+                    if (is_synced) {
+                        strcpy(msg.command, "sync off");
+                        msg.cmd_type = CMD_SYNC_OFF;
+                        is_synced = 0;
+                        show_notification("Synchronization disabled");
+                    } else {
+                        strcpy(msg.command, "sync on");
+                        msg.cmd_type = CMD_SYNC_ON;
+                        is_synced = 1;
+                        show_notification("Synchronization enabled");
+                    }
+                    update_status();
+                    write(write_fd, &msg, sizeof(msg));
+                    break;
+                    
+                case KEY_F(9): // F9 - Status
+                    show_notification("Showing browser status...");
+                    strcpy(msg.command, "status");
+                    msg.cmd_type = CMD_STATUS;
+                    write(write_fd, &msg, sizeof(msg));
+                    break;
+                    
+                case KEY_F(10): // F10 - Exit
+                    running = 0;
+                    break;
+                    
+                case 'c': // Command mode
+                    // Show command prompt
+                    show_notification("Enter command");
+                    echo();
+                    curs_set(1);
+                    werase(cmdwin);
+                    wattron(cmdwin, COLOR_PAIR(COLOR_URL));
+                    draw_borders(cmdwin);
+                    mvwprintw(cmdwin, 0, 2, " Location ");
+                    mvwprintw(cmdwin, 1, 2, "🔗 %s", current_url);
+                    mvwprintw(cmdwin, 3, 2, "💻 Command > ");
+                    wattroff(cmdwin, COLOR_PAIR(COLOR_URL));
+                    wrefresh(cmdwin);
+                    
+                    wmove(cmdwin, 3, 15);
+                    wgetnstr(cmdwin, input, MAX_MSG);
+                    noecho();
+                    curs_set(0);
+                    
+                    if (strcmp(input, "exit") == 0) {
+                        running = 0;
+                        break;
+                    }
+                    
+                    // Parse command
+                    if (strncmp(input, "load ", 5) == 0) {
+                        strncpy(current_url, input + 5, MAX_MSG - 1);
+                        current_url[MAX_MSG - 1] = '\0';
+                        update_ui();
+                        msg.cmd_type = CMD_LOAD;
+                    } else if (strcmp(input, "reload") == 0) {
+                        msg.cmd_type = CMD_RELOAD;
+                    } else if (strcmp(input, "back") == 0) {
+                        msg.cmd_type = CMD_BACK;
+                    } else if (strcmp(input, "forward") == 0) {
+                        msg.cmd_type = CMD_FORWARD;
+                    } else if (strcmp(input, "history") == 0) {
+                        msg.cmd_type = CMD_HISTORY;
+                    } else if (strcmp(input, "bookmark") == 0) {
+                        msg.cmd_type = CMD_BOOKMARK;
+                    } else if (strcmp(input, "bookmarks") == 0) {
+                        msg.cmd_type = CMD_BOOKMARK_LIST;
+                    } else if (strncmp(input, "open ", 5) == 0) {
+                        msg.cmd_type = CMD_BOOKMARK_OPEN;
+                    } else if (strncmp(input, "delete ", 7) == 0) {
+                        msg.cmd_type = CMD_BOOKMARK_DELETE;
+                    } else if (strcmp(input, "sync on") == 0) {
+                        msg.cmd_type = CMD_SYNC_ON;
+                        is_synced = 1;
+                        update_status();
+                    } else if (strcmp(input, "sync off") == 0) {
+                        msg.cmd_type = CMD_SYNC_OFF;
+                        is_synced = 0;
+                        update_status();
+                    } else if (strncmp(input, "broadcast ", 10) == 0) {
+                        msg.cmd_type = CMD_BROADCAST;
+                    } else if (strcmp(input, "status") == 0) {
+                        msg.cmd_type = CMD_STATUS;
+                    } else {
+                        msg.cmd_type = CMD_UNKNOWN;
+                    }
+                    
+                    // Set timestamp and send command
+                    msg.timestamp = time(NULL);
+                    strncpy(msg.command, input, MAX_MSG);
+                    write(write_fd, &msg, sizeof(msg));
+                    break;
+            }
+        }
     }
 
     endwin();
