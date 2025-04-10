@@ -132,23 +132,39 @@ int init_shared_memory_connection() {
     return 0;
 }
 
-// Simplified border drawing function - uses plain ASCII characters
+// Simple border drawing
 void draw_borders(WINDOW *win) {
     box(win, '|', '-');
 }
 
-// Simplify notification display
+// Show notification that persists longer
 void show_notification(const char *message) {
-    if (!notificationwin) return;
+    if (!statuswin) return;
     
-    // Clear notification area
-    mvwprintw(notificationwin, 0, 2, "%-50s", message);
-    wrefresh(notificationwin);
+    // Clear notification line
+    int rows, cols;
+    getmaxyx(statuswin, rows, cols);
+    wmove(statuswin, rows - 1, 1);
+    wclrtoeol(statuswin);
     
-    // Store notification for display
+    // Display new notification
+    mvwprintw(statuswin, rows - 1, 2, "Message: %s", message);
+    wrefresh(statuswin);
+    
+    // Store for persistence
     strncpy(notification, message, MAX_MSG - 1);
     notification[MAX_MSG - 1] = '\0';
-    notification_time = time(NULL);
+    notification_time = time(NULL) + 5; // Show for 5 seconds
+}
+
+// Update notification based on timestamp
+void check_notification() {
+    if (notification[0] != '\0' && notification_time > time(NULL)) {
+        int rows, cols;
+        getmaxyx(statuswin, rows, cols);
+        mvwprintw(statuswin, rows - 1, 2, "Message: %s", notification);
+        wrefresh(statuswin);
+    }
 }
 
 // Simplified UI update function
@@ -161,6 +177,7 @@ void update_ui() {
     // Title area - simple text
     mvprintw(0, 0, "=== Mini Browser - Tab %d ===", tab_id);
     mvprintw(1, 0, "URL: %s", current_url);
+    refresh();
     
     // Content area - simple box
     contentwin = newwin(term_rows - 6, term_cols, 2, 0);
@@ -174,7 +191,7 @@ void update_ui() {
     mvwprintw(statuswin, 0, 2, "Status: %s | Sync: %s", 
               is_connected ? "Connected" : "Disconnected", 
               is_synced ? "On" : "Off");
-    mvwprintw(statuswin, 1, 2, "F1:Menu F2:Load F3:Reload F10:Exit");
+    mvwprintw(statuswin, 1, 2, "F1:Menu F2:Load F3:Reload F10:Exit c:Command");
     wrefresh(statuswin);
     
     // Command/notification area
@@ -186,7 +203,15 @@ void update_ui() {
     menuwin = newwin(num_menu_items + 2, 25, 3, 5);
     
     // Set notification window
-    notificationwin = cmdwin;
+    notificationwin = statuswin;
+    
+    // Restore any active notification
+    if (notification[0] != '\0' && notification_time > time(NULL)) {
+        int rows, cols;
+        getmaxyx(statuswin, rows, cols);
+        mvwprintw(statuswin, rows - 1, 2, "Message: %s", notification);
+        wrefresh(statuswin);
+    }
     
     refresh();
 }
@@ -199,6 +224,9 @@ void update_status() {
               is_connected ? "Connected" : "Disconnected", 
               is_synced ? "On" : "Off");
     wrefresh(statuswin);
+    
+    // Preserve notification if it exists
+    check_notification();
 }
 
 // Simplified menu display
@@ -209,7 +237,9 @@ void display_menu() {
     mvwprintw(menuwin, 0, 2, "Menu");
     for (int i = 0; i < num_menu_items; i++) {
         if (i == selected_menu_item) {
+            wattron(menuwin, A_REVERSE); // Make selection more visible
             mvwprintw(menuwin, i + 1, 2, "-> %s", tab_menu_items[i]);
+            wattroff(menuwin, A_REVERSE);
         } else {
             mvwprintw(menuwin, i + 1, 2, "   %s", tab_menu_items[i]);
         }
@@ -381,12 +411,11 @@ void handle_menu_action() {
         case 0: // Load Page
             show_notification("Enter URL to load");
             echo();
-            wmove(cmdwin, 3, 15);
+            wmove(cmdwin, 0, 11);  // Position after "Command > "
             wgetnstr(cmdwin, input, MAX_MSG - 6);
             noecho();
             
             if (strlen(input) > 0) {
-                // Đảm bảo không tràn bộ đệm khi tạo command
                 snprintf(msg.command, sizeof(msg.command), "load %.*s", 
                         (int)(sizeof(msg.command) - 6), input);
                 msg.cmd_type = CMD_LOAD;
@@ -395,6 +424,9 @@ void handle_menu_action() {
                 update_ui();
                 if (write(write_fd, &msg, sizeof(msg)) < 0) {
                     perror("write");
+                    show_notification("Error sending command!");
+                } else {
+                    show_notification("Page loading...");
                 }
             }
             break;
@@ -525,31 +557,43 @@ int main(int argc, char *argv[]) {
         init_pair(1, COLOR_WHITE, COLOR_BLACK);
     }
     
-    // Only start essential thread
+    // CRITICAL: Start the response thread to receive data from browser
     if (pthread_create(&response_thread, NULL, listen_response, NULL) != 0) {
         endwin();
         fprintf(stderr, "[Tab %d] Error: Cannot create response thread.\n", tab_id);
         exit(1);
     }
     
-    // Notify about simplified UI
-    show_notification("SIMPLIFIED UI: Focus on testing functionality");
+    // Optional: Start sync thread for tab synchronization
+    if (pthread_create(&sync_thread, NULL, sync_thread_func, NULL) != 0) {
+        // Non-critical, just show warning
+        show_notification("Warning: Sync functionality unavailable");
+    } else {
+        printf("[Tab %d] Sync thread started\n", tab_id);
+    }
+    
+    // Notification that will persist
+    show_notification("SIMPLIFIED UI: Testing functionality - English interface");
     
     // Main event loop
     int ch;
     BrowserMessage msg;
     msg.tab_id = tab_id;
-    char input[MAX_MSG]; 
+    char input[MAX_MSG];
     
     while (running) {
         if (show_menu) {
             display_menu();
         } else {
-             touchwin(stdscr); // Đánh dấu toàn bộ màn hình cần vẽ lại
-             refresh(); 
+            // Check and refresh notifications if needed
+            check_notification();
+            
+            // Periodic refresh to keep UI stable
+            touchwin(stdscr);
+            refresh();
         }
         
-        timeout(500); 
+        timeout(500); // Half-second timeout is good for responsiveness
         ch = getch();
         
         // Xóa menu nếu người dùng nhập gì đó khác điều hướng menu
@@ -601,83 +645,82 @@ int main(int argc, char *argv[]) {
                     break;
                 case KEY_F(2): // F2 - Load (Dùng chế độ nhập lệnh)
                 case 'c':      // c - Command mode
-                    // Sử dụng dòng cuối của statuswin để nhập lệnh
-                    wmove(statuswin, 2, 1);
-                    wclrtoeol(statuswin);
-                    mvwprintw(statuswin, 2, 2, "Lệnh > ");
-                    wrefresh(statuswin);
+                    // Clear the command line
+                    werase(cmdwin);
+                    mvwprintw(cmdwin, 0, 0, "Command > ");
+                    wrefresh(cmdwin);
                     
-                    echo(); curs_set(1); // Bật echo và con trỏ
-                    wmove(statuswin, 2, 9); // Di chuyển con trỏ đến vị trí nhập
+                    echo(); curs_set(1); // Show cursor and typing
+                    wmove(cmdwin, 0, 10);
                     
-                    wgetnstr(statuswin, input, sizeof(input) - 1);
+                    wgetnstr(cmdwin, input, sizeof(input) - 1);
                     
-                    noecho(); curs_set(0); // Tắt echo và con trỏ
+                    noecho(); curs_set(0);
                     
-                    // Xóa dòng nhập lệnh sau khi nhập xong
-                    wmove(statuswin, 2, 1);
-                    wclrtoeol(statuswin);
-                    mvwprintw(statuswin, 2, 2, "Thông báo: Đang xử lý...");
-                    wrefresh(statuswin);
-                    
-                    if (strlen(input) == 0) break; // Bỏ qua nếu không nhập gì
-                    
-                    if (strcmp(input, "exit") == 0) {
-                        running = 0; break;
+                    if (strlen(input) > 0) {
+                        // Process command
+                        if (strcmp(input, "exit") == 0) {
+                            running = 0; 
+                            break;
+                        }
+                        
+                        msg.timestamp = time(NULL);
+                        strncpy(msg.command, input, sizeof(msg.command) - 1);
+                        msg.command[sizeof(msg.command) - 1] = '\0';
+                        
+                        // CRITICAL: Set command type based on input
+                        if (strncmp(input, "load ", 5) == 0) {
+                            strncpy(current_url, input + 5, sizeof(current_url) - 1);
+                            current_url[sizeof(current_url) - 1] = '\0';
+                            update_ui(); // Update URL on UI
+                            msg.cmd_type = CMD_LOAD;
+                        } else if (strcmp(input, "reload") == 0) {
+                            msg.cmd_type = CMD_RELOAD;
+                        } else if (strcmp(input, "back") == 0) {
+                            msg.cmd_type = CMD_BACK;
+                        } else if (strcmp(input, "forward") == 0) {
+                            msg.cmd_type = CMD_FORWARD;
+                        } else if (strcmp(input, "history") == 0) {
+                            msg.cmd_type = CMD_HISTORY;
+                        } else if (strcmp(input, "bookmark") == 0) {
+                            msg.cmd_type = CMD_BOOKMARK;
+                        } else if (strcmp(input, "bookmarks") == 0) {
+                            msg.cmd_type = CMD_BOOKMARK_LIST;
+                        } else if (strncmp(input, "open ", 5) == 0) {
+                            msg.cmd_type = CMD_BOOKMARK_OPEN;
+                        } else if (strncmp(input, "delete ", 7) == 0) {
+                            msg.cmd_type = CMD_BOOKMARK_DELETE;
+                        } else if (strcmp(input, "sync on") == 0) {
+                            msg.cmd_type = CMD_SYNC_ON;
+                            is_synced = 1; update_status();
+                        } else if (strcmp(input, "sync off") == 0) {
+                            msg.cmd_type = CMD_SYNC_OFF;
+                            is_synced = 0; update_status();
+                        } else if (strcmp(input, "status") == 0) {
+                            msg.cmd_type = CMD_STATUS;
+                        } else {
+                            msg.cmd_type = CMD_UNKNOWN;
+                        }
+                        
+                        // Send command to browser
+                        if (write(write_fd, &msg, sizeof(msg)) < 0) {
+                            perror("write to browser");
+                            show_notification("Error sending command!");
+                        } else {
+                            char notification_text[MAX_MSG];
+                            snprintf(notification_text, MAX_MSG, "Command sent: %s", input);
+                            show_notification(notification_text);
+                        }
                     }
                     
-                    // Phân tích và gửi lệnh
-                    msg.timestamp = time(NULL);
-                    strncpy(msg.command, input, sizeof(msg.command) - 1);
-                    msg.command[sizeof(msg.command) - 1] = '\0'; // Ensure null termination
-                    
-                    // Xác định loại lệnh (có thể gộp vào browser.c nếu muốn)
-                    if (strncmp(input, "load ", 5) == 0) {
-                        strncpy(current_url, input + 5, sizeof(current_url) - 1);
-                        current_url[sizeof(current_url) - 1] = '\0';
-                        update_ui(); // Cập nhật URL trên UI
-                        msg.cmd_type = CMD_LOAD;
-                    } else if (strcmp(input, "reload") == 0) {
-                        msg.cmd_type = CMD_RELOAD;
-                    } else if (strcmp(input, "back") == 0) {
-                        msg.cmd_type = CMD_BACK;
-                    } else if (strcmp(input, "forward") == 0) {
-                        msg.cmd_type = CMD_FORWARD;
-                    } else if (strcmp(input, "history") == 0) {
-                        msg.cmd_type = CMD_HISTORY;
-                    } else if (strcmp(input, "bookmark") == 0) {
-                        msg.cmd_type = CMD_BOOKMARK;
-                    } else if (strcmp(input, "bookmarks") == 0) {
-                        msg.cmd_type = CMD_BOOKMARK_LIST;
-                    } else if (strncmp(input, "open ", 5) == 0) {
-                        msg.cmd_type = CMD_BOOKMARK_OPEN;
-                    } else if (strncmp(input, "delete ", 7) == 0) {
-                        msg.cmd_type = CMD_BOOKMARK_DELETE;
-                    } else if (strcmp(input, "sync on") == 0) {
-                        msg.cmd_type = CMD_SYNC_ON;
-                        is_synced = 1; update_status();
-                    } else if (strcmp(input, "sync off") == 0) {
-                        msg.cmd_type = CMD_SYNC_OFF;
-                        is_synced = 0; update_status();
-                    } else if (strcmp(input, "status") == 0) {
-                        msg.cmd_type = CMD_STATUS;
-                    } else {
-                        msg.cmd_type = CMD_UNKNOWN;
-                    }
-                    
-                    // Gửi lệnh tới browser
-                    if (write(write_fd, &msg, sizeof(msg)) < 0) {
-                        perror("write to browser");
-                        show_notification("Lỗi gửi lệnh!");
-                    } else {
-                        show_notification("Đã gửi lệnh: ");
-                        waddstr(statuswin, input); // Hiển thị lại lệnh đã gửi
-                        wrefresh(statuswin);
-                    }
+                    // Restore the command line
+                    werase(cmdwin);
+                    mvwprintw(cmdwin, 0, 0, "Command > ");
+                    wrefresh(cmdwin);
                     break;
 
-                case KEY_F(3): // F3 - Reload (Gửi lệnh reload)
-                    show_notification("Đang tải lại...");
+                case KEY_F(3): // F3 - Reload
+                    show_notification("Reloading page...");
                     strcpy(msg.command, "reload");
                     msg.cmd_type = CMD_RELOAD;
                     if (write(write_fd, &msg, sizeof(msg)) < 0) perror("write reload");
@@ -696,6 +739,9 @@ int main(int argc, char *argv[]) {
                     break;
             }
         }
+        
+        // Always refresh the UI after processing input
+        update_status();
     }
 
     // Dọn dẹp trước khi thoát
