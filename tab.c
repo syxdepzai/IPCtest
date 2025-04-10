@@ -137,47 +137,44 @@ void draw_borders(WINDOW *win) {
     int x, y, i;
     getmaxyx(win, y, x);
     
-    // Draw corners
-    mvwaddch(win, 0, 0, ACS_ULCORNER);
-    mvwaddch(win, y - 1, 0, ACS_LLCORNER);
-    mvwaddch(win, 0, x - 1, ACS_URCORNER);
-    mvwaddch(win, y - 1, x - 1, ACS_LRCORNER);
+    // Sử dụng ký tự ASCII thông thường thay vì ACS
+    mvwaddch(win, 0, 0, '+');
+    mvwaddch(win, y - 1, 0, '+');
+    mvwaddch(win, 0, x - 1, '+');
+    mvwaddch(win, y - 1, x - 1, '+');
     
-    // Draw horizontal lines with fancy pattern
+    // Vẽ đường ngang
     for (i = 1; i < x - 1; i++) {
-        mvwaddch(win, 0, i, ACS_HLINE);
-        mvwaddch(win, y - 1, i, ACS_HLINE);
+        mvwaddch(win, 0, i, '-');
+        mvwaddch(win, y - 1, i, '-');
     }
     
-    // Draw vertical lines with fancy pattern
+    // Vẽ đường dọc
     for (i = 1; i < y - 1; i++) {
-        mvwaddch(win, i, 0, ACS_VLINE);
-        mvwaddch(win, i, x - 1, ACS_VLINE);
+        mvwaddch(win, i, 0, '|');
+        mvwaddch(win, i, x - 1, '|');
     }
 }
 
 // Show notification message with animation
 void show_notification(const char *message) {
-    if (!notificationwin) return;
+    if (!statuswin) return;
     
     strncpy(notification, message, MAX_MSG - 1);
     notification_time = time(NULL);
     
-    // Clear notification window
-    werase(notificationwin);
+    // Chỉ cập nhật dòng thứ hai của statuswin
+    int rows, cols;
+    getmaxyx(statuswin, rows, cols);
     
-    // Set color
-    wattron(notificationwin, COLOR_PAIR(COLOR_NOTIFY) | A_BOLD);
+    // Xóa dòng thứ hai
+    wmove(statuswin, 1, 1);
+    for (int i = 1; i < cols - 1; i++)
+        waddch(statuswin, ' ');
     
-    // Draw notification with border
-    draw_borders(notificationwin);
-    mvwprintw(notificationwin, 1, 2, "▶ %s", notification);
-    
-    wattroff(notificationwin, COLOR_PAIR(COLOR_NOTIFY) | A_BOLD);
-    wrefresh(notificationwin);
-    
-    // Flash notification to draw attention
-    flash();
+    // Hiển thị thông báo
+    mvwprintw(statuswin, 1, 2, "MSG: %s", notification);
+    wrefresh(statuswin);
 }
 
 // Get active tab count
@@ -338,61 +335,50 @@ void *listen_response(void *arg) {
             } while (bytes_read > 0 && total_read < sizeof(response) - 1);
             
             if (total_read > 0) {
-                // Ensure null termination
+                // Đảm bảo null termination
                 response[total_read] = '\0';
                 
-                // Process response
+                // Xóa và vẽ lại contentwin
                 werase(contentwin);
-                
-                // Draw styled border
-                wattron(contentwin, COLOR_PAIR(COLOR_CONTENT));
-                draw_borders(contentwin);
+                box(contentwin, 0, 0);
                 mvwprintw(contentwin, 0, 2, " Content ");
-                wattroff(contentwin, COLOR_PAIR(COLOR_CONTENT));
                 
-                // Display content
-                wattron(contentwin, COLOR_PAIR(COLOR_CONTENT));
-                
-                // Get content window dimensions
+                // Lấy kích thước của contentwin
                 int win_rows, win_cols;
                 getmaxyx(contentwin, win_rows, win_cols);
                 
+                // Giới hạn số ký tự hiển thị
+                int max_line_len = win_cols - 4;
+                int max_lines = win_rows - 2;  // Trừ 2 cho viền
+                
+                // Hiển thị nội dung
                 int line = 1;
                 char *token = strtok(response, "\n");
-                while (token && line < win_rows - 1) {
-                    // Ensure line doesn't exceed window width
-                    if (strlen(token) > win_cols - 4) {
-                        token[win_cols - 4] = '\0';
-                    }
+                while (token && line < max_lines) {
+                    // Cắt dòng nếu quá dài
+                    if (strlen(token) > max_line_len)
+                        token[max_line_len] = '\0';
+                        
                     mvwprintw(contentwin, line++, 2, "%s", token);
                     token = strtok(NULL, "\n");
                 }
-                wattroff(contentwin, COLOR_PAIR(COLOR_CONTENT));
                 
-                // Update address bar with current URL if available
+                // Cập nhật URL trong titlewin
                 if (current_url[0] != '\0') {
-                    werase(cmdwin);
-                    wattron(cmdwin, COLOR_PAIR(COLOR_URL));
-                    draw_borders(cmdwin);
-                    mvwprintw(cmdwin, 0, 2, " Location ");
-                    
-                    // URL field with icon - ensure it doesn't exceed window width
-                    int cmd_cols;
-                    getmaxyx(cmdwin, win_rows, cmd_cols);
-                    if (strlen(current_url) > cmd_cols - 6) {
-                        current_url[cmd_cols - 6] = '\0';
-                    }
-                    mvwprintw(cmdwin, 1, 2, "🔗 %s", current_url);
-                    
-                    // Command prompt with icon
-                    mvwprintw(cmdwin, 3, 2, "💻 Command > ");
-                    wattroff(cmdwin, COLOR_PAIR(COLOR_URL));
-                    wrefresh(cmdwin);
+                    wmove(titlewin, 1, 2);
+                    wclrtoeol(titlewin);
+                    // Cắt URL nếu quá dài
+                    int max_url_len = term_cols - 8;  // Trừ 8 cho "URL: " và lề
+                    char display_url[MAX_MSG];
+                    strncpy(display_url, current_url, MAX_MSG - 1);
+                    if (strlen(display_url) > max_url_len)
+                        display_url[max_url_len] = '\0';
+                        
+                    mvwprintw(titlewin, 1, 2, "URL: %s", display_url);
+                    wrefresh(titlewin);
                 }
                 
                 wrefresh(contentwin);
-                
-                // Refresh status after content update
                 update_status();
             }
         }
@@ -405,109 +391,76 @@ void *listen_response(void *arg) {
 void update_ui() {
     clear();
     
-    // Get terminal dimensions
+    // Lấy kích thước terminal
     int term_rows, term_cols;
     getmaxyx(stdscr, term_rows, term_cols);
     
-    // Calculate window sizes based on terminal dimensions
-    int title_height = 3;
-    int cmd_height = 5;
-    int notification_height = 3;
+    // Layout đơn giản hơn:
+    // 1. Dòng tiêu đề + url (2 dòng)
+    // 2. Vùng nội dung (phần lớn màn hình)
+    // 3. Dòng trạng thái (2 dòng)
+    
+    int title_height = 2;
     int status_height = 2;
-    int content_height = term_rows - (title_height + cmd_height + notification_height + status_height);
+    int content_height = term_rows - (title_height + status_height);
     
-    // Ensure content window has minimum height
-    if (content_height < 5) {
-        content_height = 5;
-    }
+    // Đảm bảo vùng nội dung có tối thiểu 3 dòng
+    if (content_height < 3) 
+        content_height = 3;
     
-    // Create title bar
+    // 1. Vùng tiêu đề và URL kết hợp
     titlewin = newwin(title_height, term_cols, 0, 0);
     wattron(titlewin, COLOR_PAIR(COLOR_TITLE) | A_BOLD);
     box(titlewin, 0, 0);
-    
-    // Center the title
-    int title_pos = (term_cols - 32) / 2;
-    if (title_pos < 2) title_pos = 2;
-    
-    mvwprintw(titlewin, 1, title_pos, "✨ Mini Browser - Tab %d ✨", tab_id);
+    mvwprintw(titlewin, 0, 2, " Browser Tab %d ", tab_id);
+    mvwprintw(titlewin, 1, 2, "URL: %s", current_url);
     wattroff(titlewin, COLOR_PAIR(COLOR_TITLE) | A_BOLD);
     wrefresh(titlewin);
     
-    // Create command window
-    cmdwin = newwin(cmd_height, term_cols, title_height, 0);
-    wattron(cmdwin, COLOR_PAIR(COLOR_URL));
-    draw_borders(cmdwin);
-    mvwprintw(cmdwin, 0, 2, " Location ");
-    mvwprintw(cmdwin, 1, 2, "🔗 %s", current_url);
-    mvwprintw(cmdwin, 3, 2, "💻 Command > ");
-    wattroff(cmdwin, COLOR_PAIR(COLOR_URL));
-    wrefresh(cmdwin);
-    
-    // Create content window
-    int content_y = title_height + cmd_height;
-    contentwin = newwin(content_height, term_cols, content_y, 0);
+    // 2. Vùng nội dung
+    contentwin = newwin(content_height, term_cols, title_height, 0);
     wattron(contentwin, COLOR_PAIR(COLOR_CONTENT));
-    draw_borders(contentwin);
+    box(contentwin, 0, 0);
     mvwprintw(contentwin, 0, 2, " Content ");
     mvwprintw(contentwin, 1, 2, "Content will appear here...");
     wattroff(contentwin, COLOR_PAIR(COLOR_CONTENT));
     wrefresh(contentwin);
     
-    // Create notification window
-    int notification_y = content_y + content_height;
-    notificationwin = newwin(notification_height, term_cols, notification_y, 0);
-    wattron(notificationwin, COLOR_PAIR(COLOR_NOTIFY));
-    draw_borders(notificationwin);
-    mvwprintw(notificationwin, 0, 2, " Notifications ");
-    wattroff(notificationwin, COLOR_PAIR(COLOR_NOTIFY));
-    wrefresh(notificationwin);
-    
-    // Create status window
-    int status_y = notification_y + notification_height;
-    statuswin = newwin(status_height, term_cols, status_y, 0);
-    wattron(statuswin, COLOR_PAIR(COLOR_STATUS) | A_BOLD);
-    mvwprintw(statuswin, 0, 1, " Status: %s | Sync: %s | Tab ID: %d | Press F1 for menu", 
-             is_connected ? "Connected ✅" : "Disconnected ❌",
-             is_synced ? "ON ✅" : "OFF ❌",
-             tab_id);
-    
-    // Add keyboard shortcuts
-    mvwprintw(statuswin, 1, 1, " F1:Menu | F2:Load | F3:Reload | F4:Back | F5:Forward | F10:Exit");
-    wattroff(statuswin, COLOR_PAIR(COLOR_STATUS) | A_BOLD);
+    // 3. Vùng trạng thái (kết hợp status và thông báo)
+    statuswin = newwin(status_height, term_cols, title_height + content_height, 0);
+    wattron(statuswin, COLOR_PAIR(COLOR_STATUS));
+    box(statuswin, 0, 0);
+    mvwprintw(statuswin, 0, 2, "Status: %s | Tab: %d | F1:Menu | F10:Exit", 
+              is_connected ? "Connected" : "Disconnected", tab_id);
+    mvwprintw(statuswin, 1, 2, "F2:Load | F3:Reload | F4:Back | F5:Forward");
+    wattroff(statuswin, COLOR_PAIR(COLOR_STATUS));
     wrefresh(statuswin);
     
-    // Create menu window (hidden by default)
-    menuwin = newwin(num_menu_items + 2, 20, 5, 5);
+    // Menu window
+    menuwin = newwin(num_menu_items + 2, 20, 2, 2);
+    
+    // Bỏ qua notificationwin vì đã kết hợp vào statuswin
+    notificationwin = statuswin;
 }
 
 void update_status() {
     if (!statuswin) return;
     
-    werase(statuswin);
-    wattron(statuswin, COLOR_PAIR(COLOR_STATUS) | A_BOLD);
+    // Chỉ cập nhật dòng đầu tiên
+    int rows, cols;
+    getmaxyx(statuswin, rows, cols);
     
-    // Active tabs count
-    int active_tabs = get_active_tab_count();
+    // Xóa dòng đầu tiên (trừ viền)
+    wmove(statuswin, 0, 1);
+    for (int i = 1; i < cols - 1; i++)
+        waddch(statuswin, ' ');
     
-    // Status line
-    mvwprintw(statuswin, 0, 1, " Status: %s | Sync: %s | Tab ID: %d | Active Tabs: %d", 
-             is_connected ? "Connected ✅" : "Disconnected ❌",
-             is_synced ? "ON ✅" : "OFF ❌",
+    // Hiển thị trạng thái
+    mvwprintw(statuswin, 0, 2, "Status: %s | Tab: %d | Sync: %s", 
+             is_connected ? "Connected" : "Disconnected",
              tab_id,
-             active_tabs);
+             is_synced ? "ON" : "OFF");
     
-    // Add bookmark count if available
-    if (shared_state) {
-        lock_shared_memory();
-        wprintw(statuswin, " | Bookmarks: %d", shared_state->bookmark_count);
-        unlock_shared_memory();
-    }
-    
-    // Add keyboard shortcuts
-    mvwprintw(statuswin, 1, 1, " F1:Menu | F2:Load | F3:Reload | F4:Back | F5:Forward | F10:Exit");
-    
-    wattroff(statuswin, COLOR_PAIR(COLOR_STATUS) | A_BOLD);
     wrefresh(statuswin);
 }
 
@@ -650,9 +603,9 @@ int main(int argc, char *argv[]) {
     fflush(stdout);
     initscr();
     
-    // Check terminal size
-    int min_rows = 24;
-    int min_cols = 80;
+    // Giảm kích thước tối thiểu xuống
+    int min_rows = 15;  // Thay vì 24
+    int min_cols = 60;  // Thay vì 80
     int term_rows, term_cols;
     getmaxyx(stdscr, term_rows, term_cols);
     
