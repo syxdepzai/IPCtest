@@ -11,6 +11,7 @@
 #include <time.h>
 #include <errno.h>
 #include <pthread.h>
+#include <libgen.h>
 #include "common.h"
 #include "shared_memory.h"
 

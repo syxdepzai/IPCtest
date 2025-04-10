@@ -367,6 +367,11 @@ void *listen_response(void *arg) {
                 if (current_url[0] != '\0') {
                     wmove(titlewin, 1, 2);
                     wclrtoeol(titlewin);
+                    
+                    // Lấy kích thước của terminal
+                    int term_rows, term_cols;
+                    getmaxyx(stdscr, term_rows, term_cols);
+                    
                     // Cắt URL nếu quá dài
                     int max_url_len = term_cols - 8;  // Trừ 8 cho "URL: " và lề
                     char display_url[MAX_MSG];
