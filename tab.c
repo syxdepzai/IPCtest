@@ -608,6 +608,8 @@ int main(int argc, char *argv[]) {
     msg.timestamp = time(NULL);
     
     // Initialize ncurses
+    printf("[Tab %d] About to initialize ncurses...\n", tab_id);
+    fflush(stdout);
     initscr();
     start_color();
     cbreak();
