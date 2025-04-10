@@ -113,7 +113,14 @@ void send_response(int tab_id, const char *response) {
 void render_html_with_w3m(const char *html_file, char *output) {
     char cmd[256];
     snprintf(cmd, sizeof(cmd), "w3m -dump %s > /tmp/rendered.txt", html_file);
-    system(cmd);
+    int ret = system(cmd);
+    if (ret == -1) {
+        strcpy(output, "[Browser] Error: Failed to execute w3m command.");
+        return;
+    } else if (WEXITSTATUS(ret) != 0) {
+        sprintf(output, "[Browser] Error: w3m command failed with status %d", WEXITSTATUS(ret));
+        return;
+    }
 
     FILE *fp = fopen("/tmp/rendered.txt", "r");
     if (!fp) {
@@ -240,7 +247,7 @@ void show_browser_status(int tab_id) {
     lock_shared_memory();
     
     char buffer[MAX_MSG * 2] = "[Browser] Status:\n";
-    char entry[256];
+    char entry[512];
     
     // Active tabs
     int active_count = 0;
@@ -267,7 +274,8 @@ void show_browser_status(int tab_id) {
     
     // Last loaded URL
     if (shared_state->last_loaded_url[0] != '\0') {
-        snprintf(entry, sizeof(entry), "Last loaded URL: %s\n", shared_state->last_loaded_url);
+        snprintf(entry, sizeof(entry), "Last loaded URL: %.*s\n", 
+                (int)(sizeof(entry) - 20), shared_state->last_loaded_url);
         strcat(buffer, entry);
     }
     
@@ -315,10 +323,23 @@ void handle_command(BrowserMessage *msg) {
     
     switch (msg->cmd_type) {
         case CMD_LOAD: {
-            char page_name[MAX_MSG];
-            sscanf(msg->command + 5, "%s", page_name);
+            char path[512];
+            char page_name[256];
+            char html_file[512];
+
+            strcpy(path, msg->command + 5);
+            strcpy(page_name, basename(path));
             
-            char html_file[MAX_MSG];
+            // Remove any file extension
+            char *dot = strrchr(page_name, '.');
+            if (dot) *dot = '\0';
+            
+            // Đảm bảo page_name đủ ngắn để không gây tràn bộ đệm
+            if (strlen(page_name) > 500) {
+                page_name[500] = '\0';
+            }
+            
+            // Tạo tên file HTML
             snprintf(html_file, sizeof(html_file), "%s.html", page_name);
 
             FILE *check = fopen(html_file, "r");

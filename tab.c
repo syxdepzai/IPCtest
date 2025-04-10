@@ -66,6 +66,9 @@ int num_menu_items = 8;
 char current_url[MAX_MSG] = "";
 int is_connected = 0;
 
+// Forward declaration
+void update_status();
+
 void cleanup() {
     // Stop threads
     running = 0;
@@ -488,43 +491,57 @@ void handle_menu_action() {
             noecho();
             
             if (strlen(input) > 0) {
-                sprintf(msg.command, "load %s", input);
+                // Đảm bảo không tràn bộ đệm khi tạo command
+                snprintf(msg.command, sizeof(msg.command), "load %.*s", 
+                        (int)(sizeof(msg.command) - 6), input);
                 msg.cmd_type = CMD_LOAD;
                 strncpy(current_url, input, MAX_MSG - 1);
                 current_url[MAX_MSG - 1] = '\0';
                 update_ui();
-                write(write_fd, &msg, sizeof(msg));
+                if (write(write_fd, &msg, sizeof(msg)) < 0) {
+                    perror("write");
+                }
             }
             break;
             
         case 1: // Reload
             strcpy(msg.command, "reload");
             msg.cmd_type = CMD_RELOAD;
-            write(write_fd, &msg, sizeof(msg));
+            if (write(write_fd, &msg, sizeof(msg)) < 0) {
+                perror("write");
+            }
             break;
             
         case 2: // Back
             strcpy(msg.command, "back");
             msg.cmd_type = CMD_BACK;
-            write(write_fd, &msg, sizeof(msg));
+            if (write(write_fd, &msg, sizeof(msg)) < 0) {
+                perror("write");
+            }
             break;
             
         case 3: // Forward
             strcpy(msg.command, "forward");
             msg.cmd_type = CMD_FORWARD;
-            write(write_fd, &msg, sizeof(msg));
+            if (write(write_fd, &msg, sizeof(msg)) < 0) {
+                perror("write");
+            }
             break;
             
         case 4: // Bookmarks
             strcpy(msg.command, "bookmarks");
             msg.cmd_type = CMD_BOOKMARK_LIST;
-            write(write_fd, &msg, sizeof(msg));
+            if (write(write_fd, &msg, sizeof(msg)) < 0) {
+                perror("write");
+            }
             break;
             
         case 5: // History
             strcpy(msg.command, "history");
             msg.cmd_type = CMD_HISTORY;
-            write(write_fd, &msg, sizeof(msg));
+            if (write(write_fd, &msg, sizeof(msg)) < 0) {
+                perror("write");
+            }
             break;
             
         case 6: // Toggle Sync
@@ -538,7 +555,9 @@ void handle_menu_action() {
                 is_synced = 1;
             }
             update_status();
-            write(write_fd, &msg, sizeof(msg));
+            if (write(write_fd, &msg, sizeof(msg)) < 0) {
+                perror("write");
+            }
             break;
             
         case 7: // Exit
@@ -688,12 +707,16 @@ int main(int argc, char *argv[]) {
                     curs_set(0);
                     
                     if (strlen(input) > 0) {
-                        sprintf(msg.command, "load %s", input);
+                        // Đảm bảo không tràn bộ đệm khi tạo command
+                        snprintf(msg.command, sizeof(msg.command), "load %.*s",
+                                (int)(sizeof(msg.command) - 6), input);
                         msg.cmd_type = CMD_LOAD;
                         strncpy(current_url, input, MAX_MSG - 1);
                         current_url[MAX_MSG - 1] = '\0';
                         update_ui();
-                        write(write_fd, &msg, sizeof(msg));
+                        if (write(write_fd, &msg, sizeof(msg)) < 0) {
+                            perror("write");
+                        }
                     }
                     break;
                     
@@ -701,35 +724,45 @@ int main(int argc, char *argv[]) {
                     show_notification("Reloading page...");
                     strcpy(msg.command, "reload");
                     msg.cmd_type = CMD_RELOAD;
-                    write(write_fd, &msg, sizeof(msg));
+                    if (write(write_fd, &msg, sizeof(msg)) < 0) {
+                        perror("write");
+                    }
                     break;
                     
                 case KEY_F(4): // F4 - Back
                     show_notification("Going back...");
                     strcpy(msg.command, "back");
                     msg.cmd_type = CMD_BACK;
-                    write(write_fd, &msg, sizeof(msg));
+                    if (write(write_fd, &msg, sizeof(msg)) < 0) {
+                        perror("write");
+                    }
                     break;
                     
                 case KEY_F(5): // F5 - Forward
                     show_notification("Going forward...");
                     strcpy(msg.command, "forward");
                     msg.cmd_type = CMD_FORWARD;
-                    write(write_fd, &msg, sizeof(msg));
+                    if (write(write_fd, &msg, sizeof(msg)) < 0) {
+                        perror("write");
+                    }
                     break;
                     
                 case KEY_F(6): // F6 - Bookmark
                     show_notification("Bookmarking current page...");
                     strcpy(msg.command, "bookmark");
                     msg.cmd_type = CMD_BOOKMARK;
-                    write(write_fd, &msg, sizeof(msg));
+                    if (write(write_fd, &msg, sizeof(msg)) < 0) {
+                        perror("write");
+                    }
                     break;
                     
                 case KEY_F(7): // F7 - History
                     show_notification("Showing history...");
                     strcpy(msg.command, "history");
                     msg.cmd_type = CMD_HISTORY;
-                    write(write_fd, &msg, sizeof(msg));
+                    if (write(write_fd, &msg, sizeof(msg)) < 0) {
+                        perror("write");
+                    }
                     break;
                     
                 case KEY_F(8): // F8 - Toggle Sync
@@ -745,14 +778,18 @@ int main(int argc, char *argv[]) {
                         show_notification("Synchronization enabled");
                     }
                     update_status();
-                    write(write_fd, &msg, sizeof(msg));
+                    if (write(write_fd, &msg, sizeof(msg)) < 0) {
+                        perror("write");
+                    }
                     break;
                     
                 case KEY_F(9): // F9 - Status
                     show_notification("Showing browser status...");
                     strcpy(msg.command, "status");
                     msg.cmd_type = CMD_STATUS;
-                    write(write_fd, &msg, sizeof(msg));
+                    if (write(write_fd, &msg, sizeof(msg)) < 0) {
+                        perror("write");
+                    }
                     break;
                     
                 case KEY_F(10): // F10 - Exit
@@ -824,7 +861,9 @@ int main(int argc, char *argv[]) {
                     // Set timestamp and send command
                     msg.timestamp = time(NULL);
                     strncpy(msg.command, input, MAX_MSG);
-                    write(write_fd, &msg, sizeof(msg));
+                    if (write(write_fd, &msg, sizeof(msg)) < 0) {
+                        perror("write");
+                    }
                     break;
             }
         }
