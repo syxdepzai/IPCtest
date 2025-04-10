@@ -132,154 +132,113 @@ int init_shared_memory_connection() {
     return 0;
 }
 
-// Đơn giản hóa hàm draw_borders thành ASCII cơ bản
-void draw_borders(WINDOW *win) {
-    int x, y;
-    getmaxyx(win, y, x);
-    
-    // Sử dụng các ký tự cơ bản để đảm bảo hiển thị trên mọi terminal
-    mvwhline(win, 0, 0, '-', x);
-    mvwhline(win, y-1, 0, '-', x);
-    mvwvline(win, 0, 0, '|', y);
-    mvwvline(win, 0, x-1, '|', y);
-    mvwaddch(win, 0, 0, '+');
-    mvwaddch(win, y-1, 0, '+');
-    mvwaddch(win, 0, x-1, '+');
-    mvwaddch(win, y-1, x-1, '+');
+// Hàm vẽ viền siêu đơn giản
+void draw_basic_border(WINDOW *win) {
+    box(win, 0, 0); // Dùng box() của ncurses cho đơn giản
 }
 
-// Đơn giản hóa hàm hiển thị thông báo
+// Hàm hiển thị thông báo trên dòng cuối cùng của statuswin
 void show_notification(const char *message) {
     if (!statuswin) return;
     
-    strncpy(notification, message, MAX_MSG - 1);
-    notification_time = time(NULL);
-    
-    // Xóa dòng thông báo
-    wmove(statuswin, 2, 2);
-    wclrtoeol(statuswin);
-    
-    // Hiển thị thông báo mới
-    mvwprintw(statuswin, 2, 2, " Thông báo: %s", message);
-    wrefresh(statuswin);
-}
-
-// Get active tab count
-int get_active_tab_count() {
-    if (!shared_state) return 0;
-    
-    lock_shared_memory();
-    int count = 0;
-    for (int i = 0; i < MAX_TABS; i++) {
-        if (shared_state->tab_active[i]) {
-            count++;
-        }
-    }
-    unlock_shared_memory();
-    
-    return count;
-}
-
-// Cập nhật hàm update_ui với giao diện cực kỳ tối giản
-void update_ui() {
-    clear();
-    
-    // Lấy kích thước terminal
-    int term_rows, term_cols;
-    getmaxyx(stdscr, term_rows, term_cols);
-    
-    // Chỉ sử dụng 3 vùng cơ bản:
-    // 1. Tiêu đề (2 dòng)
-    // 2. Nội dung (đa số màn hình)
-    // 3. Thanh trạng thái/thông báo (3 dòng)
-    
-    int title_height = 2;
-    int status_height = 3;
-    int content_height = term_rows - (title_height + status_height);
-    
-    // Đảm bảo nội dung có ít nhất 3 dòng
-    if (content_height < 3) content_height = 3;
-    
-    // 1. Tiêu đề và URL
-    titlewin = newwin(title_height, term_cols, 0, 0);
-    draw_borders(titlewin);
-    mvwprintw(titlewin, 0, 2, " Tab %d ", tab_id);
-    mvwprintw(titlewin, 1, 2, "URL: %s", current_url);
-    wrefresh(titlewin);
-    
-    // 2. Nội dung
-    contentwin = newwin(content_height, term_cols, title_height, 0);
-    draw_borders(contentwin);
-    mvwprintw(contentwin, 0, 2, " Nội dung ");
-    mvwprintw(contentwin, 1, 2, "<Nội dung sẽ hiển thị ở đây>");
-    wrefresh(contentwin);
-    
-    // 3. Trạng thái và menu
-    statuswin = newwin(status_height, term_cols, title_height + content_height, 0);
-    draw_borders(statuswin);
-    
-    // Hiển thị trạng thái
-    int connect_status = is_connected ? 1 : 0;
-    int sync_status = is_synced ? 1 : 0;
-    mvwprintw(statuswin, 0, 2, " Trạng thái: %s | Tab: %d | Đồng bộ: %s ", 
-              connect_status ? "Kết nối" : "Không kết nối", 
-              tab_id,
-              sync_status ? "Bật" : "Tắt");
-    
-    // Hiển thị các phím tắt chức năng thường dùng trên dòng đầu
-    mvwprintw(statuswin, 1, 2, " F1:Menu | F2:Load | F3:Reload | F10:Exit | c:Nhập lệnh ");
-    
-    // Dòng thứ 2 để hiển thị thông báo
-    mvwprintw(statuswin, 2, 2, " Thông báo: ");
-    
-    wrefresh(statuswin);
-    
-    // Tạo cửa sổ menu riêng
-    menuwin = newwin(num_menu_items + 2, 25, 2, 2);
-    
-    // Kết hợp notificationwin và statuswin
-    notificationwin = statuswin;
-}
-
-void update_status() {
-    if (!statuswin) return;
-    
-    // Chỉ cập nhật dòng đầu tiên
     int rows, cols;
     getmaxyx(statuswin, rows, cols);
     
-    // Xóa dòng đầu tiên (trừ viền)
-    wmove(statuswin, 0, 1);
-    for (int i = 1; i < cols - 1; i++)
-        waddch(statuswin, ' ');
+    // Xóa dòng cuối (dòng thông báo)
+    wmove(statuswin, rows - 1, 1);
+    wclrtoeol(statuswin);
     
-    // Hiển thị trạng thái
-    mvwprintw(statuswin, 0, 2, "Status: %s | Tab: %d | Sync: %s", 
-             is_connected ? "Connected" : "Disconnected",
-             tab_id,
-             is_synced ? "ON" : "OFF");
+    // Hiển thị thông báo mới, cắt bớt nếu quá dài
+    char temp_msg[cols - 4]; // Buffer tạm
+    snprintf(temp_msg, sizeof(temp_msg), "Thông báo: %s", message);
+    mvwprintw(statuswin, rows - 1, 2, "%.*s", cols - 4, temp_msg);
     
     wrefresh(statuswin);
 }
 
-// Cập nhật hàm display_menu để đơn giản hơn
+// Hàm cập nhật giao diện siêu đơn giản
+void update_ui() {
+    clear(); // Xóa toàn bộ màn hình trước
+    
+    int term_rows, term_cols;
+    getmaxyx(stdscr, term_rows, term_cols);
+    
+    // 1. Title Bar (2 dòng)
+    int title_height = 2;
+    titlewin = newwin(title_height, term_cols, 0, 0);
+    draw_basic_border(titlewin);
+    mvwprintw(titlewin, 0, 2, "Tab %d", tab_id);
+    mvwprintw(titlewin, 1, 2, "URL: %.*s", term_cols - 8, current_url); // Cắt URL nếu dài
+    wrefresh(titlewin);
+    
+    // 2. Status Bar (3 dòng: status, keys, input/notify)
+    int status_height = 3;
+    statuswin = newwin(status_height, term_cols, term_rows - status_height, 0);
+    draw_basic_border(statuswin);
+    // Dòng trạng thái
+    int connect_status = is_connected ? 1 : 0;
+    int sync_status = is_synced ? 1 : 0;
+    mvwprintw(statuswin, 0, 2, "Trạng thái: %s | Đồng bộ: %s", 
+              connect_status ? "OK" : "--", 
+              sync_status ? "Bật" : "Tắt");
+    // Dòng phím tắt
+    mvwprintw(statuswin, 1, 2, "F1:Menu F2:Load F3:Reload F10:Exit c:Lệnh");
+    // Dòng thông báo/nhập lệnh (sẽ được cập nhật bởi show_notification hoặc phím 'c')
+    mvwprintw(statuswin, 2, 2, "Thông báo: Sẵn sàng.");
+    wrefresh(statuswin);
+    
+    // 3. Content Window (chiếm phần còn lại)
+    int content_height = term_rows - title_height - status_height;
+    if (content_height < 1) content_height = 1; // Ít nhất 1 dòng
+    contentwin = newwin(content_height, term_cols, title_height, 0);
+    draw_basic_border(contentwin);
+    mvwprintw(contentwin, 0, 2, "Nội dung");
+    wrefresh(contentwin);
+    
+    // Tạo cửa sổ menu (không vẽ ngay)
+    menuwin = newwin(num_menu_items + 2, 25, 2, 2); // Đặt gần title bar
+    
+    // Đặt notificationwin = statuswin để hàm show_notification hoạt động
+    notificationwin = statuswin;
+    
+    refresh(); // Refresh toàn bộ màn hình sau khi vẽ các cửa sổ
+}
+
+// Hàm cập nhật thanh trạng thái (chỉ dòng đầu)
+void update_status() {
+    if (!statuswin) return;
+    
+    int rows, cols;
+    getmaxyx(statuswin, rows, cols);
+    
+    // Xóa dòng trạng thái (dòng 0)
+    wmove(statuswin, 0, 1);
+    wclrtoeol(statuswin);
+    
+    // Vẽ lại trạng thái
+    int connect_status = is_connected ? 1 : 0;
+    int sync_status = is_synced ? 1 : 0;
+    mvwprintw(statuswin, 0, 2, "Trạng thái: %s | Đồng bộ: %s", 
+              connect_status ? "OK" : "--", 
+              sync_status ? "Bật" : "Tắt");
+    wrefresh(statuswin);
+}
+
+// Hàm hiển thị menu đơn giản
 void display_menu() {
     if (!menuwin) return;
-    
     werase(menuwin);
-    draw_borders(menuwin);
-    mvwprintw(menuwin, 0, 2, " Menu chức năng ");
-    
+    draw_basic_border(menuwin);
+    mvwprintw(menuwin, 0, 2, "Menu");
     for (int i = 0; i < num_menu_items; i++) {
         if (i == selected_menu_item) {
-            wattron(menuwin, A_REVERSE);
+            wattron(menuwin, A_REVERSE); // Highlight dòng được chọn
             mvwprintw(menuwin, i + 1, 2, "> %s", tab_menu_items[i]);
             wattroff(menuwin, A_REVERSE);
         } else {
             mvwprintw(menuwin, i + 1, 2, "  %s", tab_menu_items[i]);
         }
     }
-    
     wrefresh(menuwin);
 }
 
@@ -362,6 +321,7 @@ void *sync_thread_func(void *arg) {
     return NULL;
 }
 
+// Hàm lắng nghe và hiển thị nội dung
 void *listen_response(void *arg) {
     int read_fd = open(response_fifo, O_RDONLY);
     if (read_fd < 0) {
@@ -401,56 +361,35 @@ void *listen_response(void *arg) {
             } while (bytes_read > 0 && total_read < sizeof(response) - 1);
             
             if (total_read > 0) {
-                // Đảm bảo null termination
-                response[total_read] = '\0';
+                response[total_read] = '\0'; // Null terminate
                 
-                // Xóa và vẽ lại contentwin
                 werase(contentwin);
-                box(contentwin, 0, 0);
-                mvwprintw(contentwin, 0, 2, " Content ");
+                draw_basic_border(contentwin);
+                mvwprintw(contentwin, 0, 2, "Nội dung");
                 
-                // Lấy kích thước của contentwin
                 int win_rows, win_cols;
                 getmaxyx(contentwin, win_rows, win_cols);
-                
-                // Giới hạn số ký tự hiển thị
                 int max_line_len = win_cols - 4;
-                int max_lines = win_rows - 2;  // Trừ 2 cho viền
+                int max_lines = win_rows - 1; // Để lại dòng tiêu đề "Nội dung"
                 
-                // Hiển thị nội dung
                 int line = 1;
                 char *token = strtok(response, "\n");
                 while (token && line < max_lines) {
-                    // Cắt dòng nếu quá dài
-                    if (strlen(token) > max_line_len)
-                        token[max_line_len] = '\0';
-                        
-                    mvwprintw(contentwin, line++, 2, "%s", token);
+                    mvwprintw(contentwin, line++, 2, "%.*s", max_line_len, token); // Cắt nếu dài
                     token = strtok(NULL, "\n");
                 }
+                wrefresh(contentwin);
                 
-                // Cập nhật URL trong titlewin
+                // Cập nhật URL trên title bar
                 if (current_url[0] != '\0') {
-                    wmove(titlewin, 1, 2);
+                    int title_rows, title_cols;
+                    getmaxyx(titlewin, title_rows, title_cols);
+                    wmove(titlewin, 1, 1);
                     wclrtoeol(titlewin);
-                    
-                    // Lấy kích thước của terminal
-                    int term_rows, term_cols;
-                    getmaxyx(stdscr, term_rows, term_cols);
-                    
-                    // Cắt URL nếu quá dài
-                    int max_url_len = term_cols - 8;  // Trừ 8 cho "URL: " và lề
-                    char display_url[MAX_MSG];
-                    strncpy(display_url, current_url, MAX_MSG - 1);
-                    if (strlen(display_url) > max_url_len)
-                        display_url[max_url_len] = '\0';
-                        
-                    mvwprintw(titlewin, 1, 2, "URL: %s", display_url);
+                    mvwprintw(titlewin, 1, 2, "URL: %.*s", title_cols - 8, current_url);
                     wrefresh(titlewin);
                 }
-                
-                wrefresh(contentwin);
-                update_status();
+                update_status(); // Cập nhật trạng thái
             }
         }
     }
@@ -557,296 +496,210 @@ void handle_menu_action() {
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
-        printf("Usage: %s <tab_id>\n", argv[0]);
+        fprintf(stderr, "Usage: %s <tab_id>\n", argv[0]);
         return 1;
     }
+    tab_id = atoi(argv[1]);
+    
+    printf("[Tab %d] Bắt đầu khởi tạo...
+", tab_id);
+    fflush(stdout);
 
     // Set up signal handlers
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    tab_id = atoi(argv[1]);
+    // Tạo FIFO
     snprintf(response_fifo, sizeof(response_fifo), "%s%d", RESPONSE_FIFO_PREFIX, tab_id);
     mkfifo(response_fifo, 0666);
+    printf("[Tab %d] Response FIFO '%s' created.
+", tab_id, response_fifo);
+    fflush(stdout);
 
-    // Try to connect to browser via FIFO
+    // Kết nối tới browser FIFO
+    printf("[Tab %d] Đang kết nối tới browser...
+", tab_id);
+    fflush(stdout);
     write_fd = open(BROWSER_FIFO, O_WRONLY);
     if (write_fd < 0) {
         perror("open browser fifo");
-        printf("[Tab %d] Cannot connect to browser. Make sure it's running.\n", tab_id);
+        fprintf(stderr, "[Tab %d] Lỗi: Không thể kết nối tới browser. Đảm bảo ./browser đang chạy.
+", tab_id);
+        unlink(response_fifo); // Xóa response fifo nếu không kết nối được
         exit(1);
     }
-    
     is_connected = 1;
-    
-    // Try to attach to shared memory
-    if (init_shared_memory_connection() == 0) {
-        printf("[Tab %d] Shared memory attached successfully.\n", tab_id);
-    } else {
-        printf("[Tab %d] No shared memory yet. Will try again later.\n", tab_id);
-    }
-
-    BrowserMessage msg;
-    msg.tab_id = tab_id;
-    msg.cmd_type = CMD_UNKNOWN;
-    msg.use_shared_memory = 0;
-    msg.shared_memory_id = -1;
-    msg.timestamp = time(NULL);
-    
-    // Initialize ncurses
-    printf("[Tab %d] About to initialize ncurses...\n", tab_id);
+    printf("[Tab %d] Đã kết nối tới browser.
+", tab_id);
     fflush(stdout);
-    initscr();
     
-    // Giảm kích thước tối thiểu xuống
-    int min_rows = 15;  // Thay vì 24
-    int min_cols = 60;  // Thay vì 80
+    // Kết nối shared memory (không bắt buộc phải thành công ngay)
+    if (init_shared_memory_connection() == 0) {
+        printf("[Tab %d] Đã kết nối Shared Memory.
+", tab_id);
+    } else {
+        printf("[Tab %d] Cảnh báo: Chưa kết nối Shared Memory.
+", tab_id);
+    }
+    fflush(stdout);
+
+    // Khởi tạo ncurses
+    printf("[Tab %d] Đang khởi tạo Ncurses UI...
+", tab_id);
+    fflush(stdout);
+    initscr();            // Bắt đầu chế độ ncurses
+    if (stdscr == NULL) {
+        fprintf(stderr, "[Tab %d] Lỗi: Không thể khởi tạo màn hình ncurses.
+", tab_id);
+        exit(1);
+    }
+    refresh();            // Vẽ màn hình lần đầu (có thể trống)
+    start_color();        // Bật màu
+    cbreak();             // Tắt buffer dòng, nhận ký tự ngay
+    noecho();             // Không hiện ký tự gõ ra màn hình
+    keypad(stdscr, TRUE); // Bật chế độ nhận phím đặc biệt (F1, mũi tên...)
+    curs_set(0);          // Ẩn con trỏ
+
+    // Kiểm tra kích thước terminal (vẫn giữ để tránh lỗi vẽ)
+    int min_rows = 10; // Giảm yêu cầu xuống tối thiểu
+    int min_cols = 50;
     int term_rows, term_cols;
     getmaxyx(stdscr, term_rows, term_cols);
-    
     if (term_rows < min_rows || term_cols < min_cols) {
         endwin();
-        printf("[Tab %d] Terminal too small. Minimum size required: %d x %d\n", 
-               tab_id, min_cols, min_rows);
-        printf("[Tab %d] Current terminal size: %d x %d\n", 
-               tab_id, term_cols, term_rows);
-        printf("Please resize your terminal and try again.\n");
+        fprintf(stderr, "[Tab %d] Lỗi: Terminal quá nhỏ (%dx%d). Yêu cầu tối thiểu: %dx%d.
+", 
+               tab_id, term_cols, term_rows, min_cols, min_rows);
         exit(1);
     }
     
-    start_color();
-    cbreak();
-    keypad(stdscr, TRUE);
-    noecho();
-    curs_set(0);  // Hide cursor initially
-    
-    // Define color pairs
-    init_pair(COLOR_TITLE, COLOR_WHITE, COLOR_BLUE);      // Title bar
-    init_pair(COLOR_STATUS, COLOR_BLACK, COLOR_CYAN);     // Status bar
-    init_pair(COLOR_NOTIFY, COLOR_WHITE, COLOR_RED);      // Notifications
-    init_pair(COLOR_URL, COLOR_WHITE, COLOR_BLACK);       // URL bar
-    init_pair(COLOR_CONTENT, COLOR_WHITE, COLOR_BLACK);   // Content
-    init_pair(COLOR_MENU, COLOR_BLACK, COLOR_WHITE);      // Menu
-    init_pair(COLOR_HIGHLIGHT, COLOR_WHITE, COLOR_GREEN); // Highlighted items
-    init_pair(COLOR_WARNING, COLOR_BLACK, COLOR_YELLOW);  // Warnings
-    
-    // Refresh screen to ensure we have the latest terminal size
-    refresh();
-    
-    // Create UI
-    update_ui();
-    update_status();
-    
-    // Ensure all windows are refreshed
-    wrefresh(titlewin);
-    wrefresh(cmdwin);
-    wrefresh(contentwin);
-    wrefresh(notificationwin);
-    wrefresh(statuswin);
-    
-    // Force a full screen refresh to ensure everything is displayed
-    refresh();
+    // Định nghĩa màu cơ bản (nếu cần)
+    if (has_colors()) {
+        init_pair(1, COLOR_WHITE, COLOR_BLUE);  // Title
+        init_pair(2, COLOR_BLACK, COLOR_CYAN);  // Status
+        // Không cần nhiều màu cho giao diện tối giản
+    }
 
-    // Start response listener thread
-    pthread_create(&response_thread, NULL, listen_response, NULL);
+    printf("[Tab %d] Ncurses đã khởi tạo. Đang vẽ UI...
+", tab_id);
+    fflush(stdout);
     
-    // Start sync thread
-    pthread_create(&sync_thread, NULL, sync_thread_func, NULL);
-    
+    // Vẽ giao diện lần đầu
+    update_ui(); 
+    printf("[Tab %d] UI đã vẽ. Bắt đầu các luồng...
+", tab_id);
+    fflush(stdout);
+
+    // Bắt đầu các luồng sau khi UI đã sẵn sàng
+    if (pthread_create(&response_thread, NULL, listen_response, NULL) != 0) {
+        perror("pthread_create response_thread");
+        endwin(); exit(1);
+    }
+    if (pthread_create(&sync_thread, NULL, sync_thread_func, NULL) != 0) {
+        perror("pthread_create sync_thread");
+        endwin(); exit(1);
+    }
+    printf("[Tab %d] Các luồng đã bắt đầu. Sẵn sàng nhận lệnh.
+", tab_id);
+    fflush(stdout);
+
     // Main event loop
     int ch;
-    char input[MAX_MSG];
+    BrowserMessage msg; // Khai báo msg ở đây
+    msg.tab_id = tab_id; // Gán tab_id một lần
+    char input[MAX_MSG]; // Buffer cho lệnh nhập
     
     while (running) {
-        // Show menu if active
         if (show_menu) {
             display_menu();
-        }
+        } 
         
-        // Update UI if needed
-        if (notification_time > 0 && time(NULL) - notification_time > 5) {
-            // Clear notification after 5 seconds
-            werase(notificationwin);
-            wattron(notificationwin, COLOR_PAIR(COLOR_NOTIFY));
-            draw_borders(notificationwin);
-            mvwprintw(notificationwin, 0, 2, " Notifications ");
-            wattroff(notificationwin, COLOR_PAIR(COLOR_NOTIFY));
-            wrefresh(notificationwin);
-            notification_time = 0;
-        }
-        
-        // Get input without blocking
-        timeout(500); // Half-second timeout
+        // Lấy input (vẫn dùng timeout để không block hoàn toàn)
+        timeout(500); // Timeout nửa giây
         ch = getch();
         
-        if (ch == ERR) {
-            // Timeout occurred, just refresh the UI
+        // Xóa menu nếu người dùng nhập gì đó khác điều hướng menu
+        if (show_menu && ch != KEY_UP && ch != KEY_DOWN && ch != 10) {
+             werase(menuwin);
+             wrefresh(menuwin);
+             show_menu = 0;
+             update_ui(); // Vẽ lại UI chính sau khi ẩn menu
+        }
+
+        if (ch == ERR) { // Nếu timeout
             continue;
         }
         
-        if (show_menu) {
-            // Handle menu navigation
+        if (show_menu) { // Xử lý khi menu đang hiện
             switch (ch) {
                 case KEY_UP:
                     selected_menu_item = (selected_menu_item + num_menu_items - 1) % num_menu_items;
                     display_menu();
                     break;
-                    
                 case KEY_DOWN:
                     selected_menu_item = (selected_menu_item + 1) % num_menu_items;
                     display_menu();
                     break;
-                    
                 case 10: // Enter
                     handle_menu_action();
+                    // Sau khi xử lý xong, ẩn menu và vẽ lại UI chính
+                    werase(menuwin);
+                    wrefresh(menuwin);
+                    show_menu = 0;
+                    update_ui();
                     break;
-                    
                 case 27: // ESC
                 case KEY_F(1):
+                    werase(menuwin);
+                    wrefresh(menuwin);
                     show_menu = 0;
+                    update_ui();
                     break;
             }
-        } else {
-            // Handle normal mode
+        } else { // Xử lý khi không ở trong menu
             switch (ch) {
                 case KEY_F(1): // F1 - Show menu
                     show_menu = 1;
                     selected_menu_item = 0;
                     display_menu();
                     break;
-                    
-                case KEY_F(2): // F2 - Load
-                    show_notification("Enter URL to load");
-                    echo();
-                    curs_set(1);
-                    wmove(cmdwin, 3, 15);
-                    wgetnstr(cmdwin, input, MAX_MSG - 6);
-                    noecho();
-                    curs_set(0);
-                    
-                    if (strlen(input) > 0) {
-                        // Đảm bảo không tràn bộ đệm khi tạo command
-                        snprintf(msg.command, sizeof(msg.command), "load %.*s",
-                                (int)(sizeof(msg.command) - 6), input);
-                        msg.cmd_type = CMD_LOAD;
-                        strncpy(current_url, input, MAX_MSG - 1);
-                        current_url[MAX_MSG - 1] = '\0';
-                        update_ui();
-                        if (write(write_fd, &msg, sizeof(msg)) < 0) {
-                            perror("write");
-                        }
-                    }
-                    break;
-                    
-                case KEY_F(3): // F3 - Reload
-                    show_notification("Reloading page...");
-                    strcpy(msg.command, "reload");
-                    msg.cmd_type = CMD_RELOAD;
-                    if (write(write_fd, &msg, sizeof(msg)) < 0) {
-                        perror("write");
-                    }
-                    break;
-                    
-                case KEY_F(4): // F4 - Back
-                    show_notification("Going back...");
-                    strcpy(msg.command, "back");
-                    msg.cmd_type = CMD_BACK;
-                    if (write(write_fd, &msg, sizeof(msg)) < 0) {
-                        perror("write");
-                    }
-                    break;
-                    
-                case KEY_F(5): // F5 - Forward
-                    show_notification("Going forward...");
-                    strcpy(msg.command, "forward");
-                    msg.cmd_type = CMD_FORWARD;
-                    if (write(write_fd, &msg, sizeof(msg)) < 0) {
-                        perror("write");
-                    }
-                    break;
-                    
-                case KEY_F(6): // F6 - Bookmark
-                    show_notification("Bookmarking current page...");
-                    strcpy(msg.command, "bookmark");
-                    msg.cmd_type = CMD_BOOKMARK;
-                    if (write(write_fd, &msg, sizeof(msg)) < 0) {
-                        perror("write");
-                    }
-                    break;
-                    
-                case KEY_F(7): // F7 - History
-                    show_notification("Showing history...");
-                    strcpy(msg.command, "history");
-                    msg.cmd_type = CMD_HISTORY;
-                    if (write(write_fd, &msg, sizeof(msg)) < 0) {
-                        perror("write");
-                    }
-                    break;
-                    
-                case KEY_F(8): // F8 - Toggle Sync
-                    if (is_synced) {
-                        strcpy(msg.command, "sync off");
-                        msg.cmd_type = CMD_SYNC_OFF;
-                        is_synced = 0;
-                        show_notification("Synchronization disabled");
-                    } else {
-                        strcpy(msg.command, "sync on");
-                        msg.cmd_type = CMD_SYNC_ON;
-                        is_synced = 1;
-                        show_notification("Synchronization enabled");
-                    }
-                    update_status();
-                    if (write(write_fd, &msg, sizeof(msg)) < 0) {
-                        perror("write");
-                    }
-                    break;
-                    
-                case KEY_F(9): // F9 - Status
-                    show_notification("Showing browser status...");
-                    strcpy(msg.command, "status");
-                    msg.cmd_type = CMD_STATUS;
-                    if (write(write_fd, &msg, sizeof(msg)) < 0) {
-                        perror("write");
-                    }
-                    break;
-                    
-                case KEY_F(10): // F10 - Exit
-                    running = 0;
-                    break;
-                    
-                case 'c': // Command mode
-                    // Hiển thị dấu nhắc lệnh trên dòng thông báo
-                    wmove(statuswin, 2, 2);
+                case KEY_F(2): // F2 - Load (Dùng chế độ nhập lệnh)
+                case 'c':      // c - Command mode
+                    // Sử dụng dòng cuối của statuswin để nhập lệnh
+                    wmove(statuswin, 2, 1);
                     wclrtoeol(statuswin);
-                    mvwprintw(statuswin, 2, 2, " Lệnh > ");
+                    mvwprintw(statuswin, 2, 2, "Lệnh > ");
                     wrefresh(statuswin);
                     
-                    // Bật chế độ nhập và hiển thị con trỏ
-                    echo();
-                    curs_set(1);
+                    echo(); curs_set(1); // Bật echo và con trỏ
+                    wmove(statuswin, 2, 9); // Di chuyển con trỏ đến vị trí nhập
                     
-                    // Di chuyển con trỏ đến vị trí nhập
-                    wmove(statuswin, 2, 10);
+                    wgetnstr(statuswin, input, sizeof(input) - 1);
+                    
+                    noecho(); curs_set(0); // Tắt echo và con trỏ
+                    
+                    // Xóa dòng nhập lệnh sau khi nhập xong
+                    wmove(statuswin, 2, 1);
+                    wclrtoeol(statuswin);
+                    mvwprintw(statuswin, 2, 2, "Thông báo: Đang xử lý...");
                     wrefresh(statuswin);
                     
-                    // Nhận lệnh từ người dùng
-                    wgetnstr(statuswin, input, MAX_MSG - 1);
+                    if (strlen(input) == 0) break; // Bỏ qua nếu không nhập gì
                     
-                    // Tắt chế độ nhập và ẩn con trỏ
-                    noecho();
-                    curs_set(0);
-                    
-                    // Xử lý lệnh nhập
                     if (strcmp(input, "exit") == 0) {
-                        running = 0;
-                        break;
+                        running = 0; break;
                     }
                     
-                    // Xử lý các lệnh khác như trước đây
+                    // Phân tích và gửi lệnh
+                    msg.timestamp = time(NULL);
+                    strncpy(msg.command, input, sizeof(msg.command) - 1);
+                    msg.command[sizeof(msg.command) - 1] = '\0'; // Ensure null termination
+                    
+                    // Xác định loại lệnh (có thể gộp vào browser.c nếu muốn)
                     if (strncmp(input, "load ", 5) == 0) {
-                        strncpy(current_url, input + 5, MAX_MSG - 1);
-                        current_url[MAX_MSG - 1] = '\0';
-                        update_ui();
+                        strncpy(current_url, input + 5, sizeof(current_url) - 1);
+                        current_url[sizeof(current_url) - 1] = '\0';
+                        update_ui(); // Cập nhật URL trên UI
                         msg.cmd_type = CMD_LOAD;
                     } else if (strcmp(input, "reload") == 0) {
                         msg.cmd_type = CMD_RELOAD;
@@ -866,39 +719,57 @@ int main(int argc, char *argv[]) {
                         msg.cmd_type = CMD_BOOKMARK_DELETE;
                     } else if (strcmp(input, "sync on") == 0) {
                         msg.cmd_type = CMD_SYNC_ON;
-                        is_synced = 1;
-                        update_status();
+                        is_synced = 1; update_status();
                     } else if (strcmp(input, "sync off") == 0) {
                         msg.cmd_type = CMD_SYNC_OFF;
-                        is_synced = 0;
-                        update_status();
-                    } else if (strncmp(input, "broadcast ", 10) == 0) {
-                        msg.cmd_type = CMD_BROADCAST;
+                        is_synced = 0; update_status();
                     } else if (strcmp(input, "status") == 0) {
                         msg.cmd_type = CMD_STATUS;
                     } else {
                         msg.cmd_type = CMD_UNKNOWN;
                     }
                     
-                    // Gửi lệnh
-                    msg.timestamp = time(NULL);
-                    strncpy(msg.command, input, MAX_MSG);
+                    // Gửi lệnh tới browser
                     if (write(write_fd, &msg, sizeof(msg)) < 0) {
-                        perror("write");
+                        perror("write to browser");
+                        show_notification("Lỗi gửi lệnh!");
+                    } else {
+                        show_notification("Đã gửi lệnh: ");
+                        waddstr(statuswin, input); // Hiển thị lại lệnh đã gửi
+                        wrefresh(statuswin);
                     }
+                    break;
+
+                case KEY_F(3): // F3 - Reload (Gửi lệnh reload)
+                    show_notification("Đang tải lại...");
+                    strcpy(msg.command, "reload");
+                    msg.cmd_type = CMD_RELOAD;
+                    if (write(write_fd, &msg, sizeof(msg)) < 0) perror("write reload");
+                    break;
                     
-                    // Hiển thị thông báo đã thực hiện lệnh
-                    show_notification("Đã thực hiện lệnh: ");
-                    waddstr(statuswin, input);
-                    wrefresh(statuswin);
+                // Các phím F khác có thể thêm tương tự hoặc để trong menu F1
+                
+                case KEY_F(10): // F10 - Exit
+                    running = 0;
+                    break;
+                    
+                 // Thêm xử lý thay đổi kích thước màn hình nếu cần
+                case KEY_RESIZE:
+                    update_ui(); // Vẽ lại UI khi thay đổi kích thước
                     break;
             }
         }
     }
 
-    endwin();
-    cleanup();
-    close(write_fd);
+    // Dọn dẹp trước khi thoát
+    printf("[Tab %d] Đang dọn dẹp...
+", tab_id);
+    fflush(stdout);
+    endwin(); // Kết thúc chế độ ncurses
+    cleanup(); // Dọn dẹp FIFO, shared memory
+    close(write_fd); // Đóng kết nối tới browser
+    printf("[Tab %d] Đã thoát.
+", tab_id);
     return 0;
 }
 
