@@ -501,8 +501,7 @@ int main(int argc, char *argv[]) {
     }
     tab_id = atoi(argv[1]);
     
-    printf("[Tab %d] Bắt đầu khởi tạo...
-", tab_id);
+    printf("[Tab %d] Bat dau khoi tao...\n", tab_id);
     fflush(stdout);
 
     // Set up signal handlers
@@ -512,45 +511,37 @@ int main(int argc, char *argv[]) {
     // Tạo FIFO
     snprintf(response_fifo, sizeof(response_fifo), "%s%d", RESPONSE_FIFO_PREFIX, tab_id);
     mkfifo(response_fifo, 0666);
-    printf("[Tab %d] Response FIFO '%s' created.
-", tab_id, response_fifo);
+    printf("[Tab %d] Response FIFO '%s' created.\n", tab_id, response_fifo);
     fflush(stdout);
 
     // Kết nối tới browser FIFO
-    printf("[Tab %d] Đang kết nối tới browser...
-", tab_id);
+    printf("[Tab %d] Dang ket noi toi browser...\n", tab_id);
     fflush(stdout);
     write_fd = open(BROWSER_FIFO, O_WRONLY);
     if (write_fd < 0) {
         perror("open browser fifo");
-        fprintf(stderr, "[Tab %d] Lỗi: Không thể kết nối tới browser. Đảm bảo ./browser đang chạy.
-", tab_id);
+        fprintf(stderr, "[Tab %d] Loi: Khong the ket noi toi browser. Dam bao ./browser dang chay.\n", tab_id);
         unlink(response_fifo); // Xóa response fifo nếu không kết nối được
         exit(1);
     }
     is_connected = 1;
-    printf("[Tab %d] Đã kết nối tới browser.
-", tab_id);
+    printf("[Tab %d] Da ket noi toi browser.\n", tab_id);
     fflush(stdout);
     
     // Kết nối shared memory (không bắt buộc phải thành công ngay)
     if (init_shared_memory_connection() == 0) {
-        printf("[Tab %d] Đã kết nối Shared Memory.
-", tab_id);
+        printf("[Tab %d] Da ket noi Shared Memory.\n", tab_id);
     } else {
-        printf("[Tab %d] Cảnh báo: Chưa kết nối Shared Memory.
-", tab_id);
+        printf("[Tab %d] Canh bao: Chua ket noi Shared Memory.\n", tab_id);
     }
     fflush(stdout);
 
     // Khởi tạo ncurses
-    printf("[Tab %d] Đang khởi tạo Ncurses UI...
-", tab_id);
+    printf("[Tab %d] Dang khoi tao Ncurses UI...\n", tab_id);
     fflush(stdout);
     initscr();            // Bắt đầu chế độ ncurses
     if (stdscr == NULL) {
-        fprintf(stderr, "[Tab %d] Lỗi: Không thể khởi tạo màn hình ncurses.
-", tab_id);
+        fprintf(stderr, "[Tab %d] Loi: Khong the khoi tao man hinh ncurses.\n", tab_id);
         exit(1);
     }
     refresh();            // Vẽ màn hình lần đầu (có thể trống)
@@ -567,8 +558,7 @@ int main(int argc, char *argv[]) {
     getmaxyx(stdscr, term_rows, term_cols);
     if (term_rows < min_rows || term_cols < min_cols) {
         endwin();
-        fprintf(stderr, "[Tab %d] Lỗi: Terminal quá nhỏ (%dx%d). Yêu cầu tối thiểu: %dx%d.
-", 
+        fprintf(stderr, "[Tab %d] Loi: Terminal qua nho (%dx%d). Yeu cau toi thieu: %dx%d.\n", 
                tab_id, term_cols, term_rows, min_cols, min_rows);
         exit(1);
     }
@@ -580,14 +570,12 @@ int main(int argc, char *argv[]) {
         // Không cần nhiều màu cho giao diện tối giản
     }
 
-    printf("[Tab %d] Ncurses đã khởi tạo. Đang vẽ UI...
-", tab_id);
+    printf("[Tab %d] Ncurses da khoi tao. Dang ve UI...\n", tab_id);
     fflush(stdout);
     
     // Vẽ giao diện lần đầu
     update_ui(); 
-    printf("[Tab %d] UI đã vẽ. Bắt đầu các luồng...
-", tab_id);
+    printf("[Tab %d] UI da ve. Bat dau cac luong...\n", tab_id);
     fflush(stdout);
 
     // Bắt đầu các luồng sau khi UI đã sẵn sàng
@@ -599,8 +587,7 @@ int main(int argc, char *argv[]) {
         perror("pthread_create sync_thread");
         endwin(); exit(1);
     }
-    printf("[Tab %d] Các luồng đã bắt đầu. Sẵn sàng nhận lệnh.
-", tab_id);
+    printf("[Tab %d] Cac luong da bat dau. San sang nhan lenh.\n", tab_id);
     fflush(stdout);
 
     // Main event loop
@@ -762,14 +749,12 @@ int main(int argc, char *argv[]) {
     }
 
     // Dọn dẹp trước khi thoát
-    printf("[Tab %d] Đang dọn dẹp...
-", tab_id);
+    printf("[Tab %d] Dang don dep...\n", tab_id);
     fflush(stdout);
     endwin(); // Kết thúc chế độ ncurses
     cleanup(); // Dọn dẹp FIFO, shared memory
     close(write_fd); // Đóng kết nối tới browser
-    printf("[Tab %d] Đã thoát.
-", tab_id);
+    printf("[Tab %d] Da thoat.\n", tab_id);
     return 0;
 }
 
