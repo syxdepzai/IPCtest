@@ -373,10 +373,10 @@ void *listen_response(void *arg) {
                 int max_lines = win_rows - 1; // Để lại dòng tiêu đề "Nội dung"
                 
                 int line = 1;
-                char *token = strtok(response, "\n");
+            char *token = strtok(response, "\n");
                 while (token && line < max_lines) {
                     mvwprintw(contentwin, line++, 2, "%.*s", max_line_len, token); // Cắt nếu dài
-                    token = strtok(NULL, "\n");
+                token = strtok(NULL, "\n");
                 }
                 wrefresh(contentwin);
                 
@@ -539,19 +539,18 @@ int main(int argc, char *argv[]) {
     // Khởi tạo ncurses
     printf("[Tab %d] Dang khoi tao Ncurses UI...\n", tab_id);
     fflush(stdout);
-    initscr();            // Bắt đầu chế độ ncurses
+    initscr();            
     if (stdscr == NULL) {
         fprintf(stderr, "[Tab %d] Loi: Khong the khoi tao man hinh ncurses.\n", tab_id);
         exit(1);
     }
-    refresh();            // Vẽ màn hình lần đầu (có thể trống)
-    start_color();        // Bật màu
-    cbreak();             // Tắt buffer dòng, nhận ký tự ngay
-    noecho();             // Không hiện ký tự gõ ra màn hình
-    keypad(stdscr, TRUE); // Bật chế độ nhận phím đặc biệt (F1, mũi tên...)
-    curs_set(0);          // Ẩn con trỏ
+    start_color();        
+    cbreak();             
+    noecho();             
+    keypad(stdscr, TRUE); 
+    curs_set(0);          
 
-    // Kiểm tra kích thước terminal (vẫn giữ để tránh lỗi vẽ)
+    // Kiểm tra kích thước terminal
     int min_rows = 10; // Giảm yêu cầu xuống tối thiểu
     int min_cols = 50;
     int term_rows, term_cols;
@@ -562,7 +561,7 @@ int main(int argc, char *argv[]) {
                tab_id, term_cols, term_rows, min_cols, min_rows);
         exit(1);
     }
-    
+
     // Định nghĩa màu cơ bản (nếu cần)
     if (has_colors()) {
         init_pair(1, COLOR_WHITE, COLOR_BLUE);  // Title
@@ -570,43 +569,29 @@ int main(int argc, char *argv[]) {
         // Không cần nhiều màu cho giao diện tối giản
     }
 
-    printf("[Tab %d] Ncurses da khoi tao. Dang ve UI...\n", tab_id);
-    fflush(stdout);
-    
     // Vẽ giao diện lần đầu
     update_ui(); 
-    printf("[Tab %d] UI da ve. Bat dau cac luong...\n", tab_id);
-    fflush(stdout);
-
-    // Bắt đầu các luồng sau khi UI đã sẵn sàng
-    if (pthread_create(&response_thread, NULL, listen_response, NULL) != 0) {
-        perror("pthread_create response_thread");
-        endwin(); exit(1);
-    }
-    if (pthread_create(&sync_thread, NULL, sync_thread_func, NULL) != 0) {
-        perror("pthread_create sync_thread");
-        endwin(); exit(1);
-    }
-    printf("[Tab %d] Cac luong da bat dau. San sang nhan lenh.\n", tab_id);
-    fflush(stdout);
+    show_notification("DEBUG: Luong tam thoi bi vo hieu hoa."); // Thông báo trạng thái debug
 
     // Main event loop
     int ch;
-    BrowserMessage msg; // Khai báo msg ở đây
-    msg.tab_id = tab_id; // Gán tab_id một lần
-    char input[MAX_MSG]; // Buffer cho lệnh nhập
+    BrowserMessage msg; 
+    msg.tab_id = tab_id; 
+    char input[MAX_MSG]; 
     
     while (running) {
         if (show_menu) {
             display_menu();
-        } 
+        } else {
+             touchwin(stdscr); // Đánh dấu toàn bộ màn hình cần vẽ lại
+             refresh(); 
+        }
         
-        // Lấy input (vẫn dùng timeout để không block hoàn toàn)
-        timeout(500); // Timeout nửa giây
+        timeout(500); 
         ch = getch();
         
         // Xóa menu nếu người dùng nhập gì đó khác điều hướng menu
-        if (show_menu && ch != KEY_UP && ch != KEY_DOWN && ch != 10) {
+        if (show_menu && ch != KEY_UP && ch != KEY_DOWN && ch != 10 && ch != 27 && ch != KEY_F(1)) {
              werase(menuwin);
              wrefresh(menuwin);
              show_menu = 0;
@@ -633,14 +618,16 @@ int main(int argc, char *argv[]) {
                     werase(menuwin);
                     wrefresh(menuwin);
                     show_menu = 0;
-                    update_ui();
+                    update_ui(); // Vẽ lại UI
+                    refresh(); // Refresh màn hình chính
                     break;
                 case 27: // ESC
                 case KEY_F(1):
                     werase(menuwin);
                     wrefresh(menuwin);
                     show_menu = 0;
-                    update_ui();
+                    update_ui(); // Vẽ lại UI
+                    refresh(); // Refresh màn hình chính
                     break;
             }
         } else { // Xử lý khi không ở trong menu
@@ -743,17 +730,18 @@ int main(int argc, char *argv[]) {
                  // Thêm xử lý thay đổi kích thước màn hình nếu cần
                 case KEY_RESIZE:
                     update_ui(); // Vẽ lại UI khi thay đổi kích thước
+                    refresh(); // Refresh màn hình chính
                     break;
             }
         }
     }
 
     // Dọn dẹp trước khi thoát
+    endwin(); // Kết thúc chế độ ncurses trước khi printf
     printf("[Tab %d] Dang don dep...\n", tab_id);
     fflush(stdout);
-    endwin(); // Kết thúc chế độ ncurses
-    cleanup(); // Dọn dẹp FIFO, shared memory
-    close(write_fd); // Đóng kết nối tới browser
+    cleanup(); 
+    close(write_fd); 
     printf("[Tab %d] Da thoat.\n", tab_id);
     return 0;
 }
